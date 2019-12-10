@@ -45,6 +45,26 @@ actual data
     find(x) - returns an iterator
     isBefore(x, y)
 
+mvcc vs ot (leader)
+  both these require a long lived head
+  if head is missing nobody can write?
+  dropping writes is acceptable for out of sync client
+  mvcc
+    shard state into versioned pieces
+    detect remote != local for the important state
+    track reads and writes
+    writes clobber value
+    example bank transfer: read A, B; set A = 5, B = 6
+    client retries with newer state
+    complex if read set is query result
+    any data structure can be represented this way
+      how to avoid high locking..
+  operational transform
+    value with higher operational semantics
+    make operations transform
+    example bank transfer: transfer $ from A to B
+    server changes the ops (what if op fail)
+
 
 operation = {
   method: String,
