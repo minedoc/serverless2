@@ -31,7 +31,19 @@ replication data model
     consider edits x -> y -> z now see x -> a -> b
       a < y : a and b are deleted if non-commuting
       a > y : y and z are deleted if non-commuting
-      1 = [add, null, {a: 5}], 2 = [add, 1, {b, 6}], 3 = [add, 1, {c, {}}],
+      1 = createRow(), 2 = setField(1, 'b', 6), 3 = setField(1, 'c', {}), 4 = updateValue(2, 7)
+    operations
+      createRow(table, value)
+        how is id generated, id = op
+        single sort per table?
+      updateValue(op, new-value)
+      addField(op, field, value)
+      deleteRow(op)
+    transaction - can't happen since history is not linear
+      update([read-ops], [write-ops], [values])
+
+fake-proto
+  oneof(A, B, C)
 
 actual data
   data = Map<Key, Val>
