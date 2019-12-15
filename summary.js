@@ -12,34 +12,24 @@ function Crdt(gossip, idb) {
   return {onChange, onDelete};
 }
 
-function Database(crdt, idb, contentKey, indices) {
+function Database(crdt, idb, readKey, indices) {
   return {set, merge, index, map, filter, group, sort};
 }
 
 /*
 replication data model
   tree of edits
-    child indicates causal relationship and positioning
-      {type: add, parent: parent, {key, value}}
-      {type: edit, parent: last-op, value}
-      {type: delete, parent: last-op}
-      {type: insertAfter, parent: prev, value}
-    siblings have an order
-    sum(sort(edits)) is actual data
-    each edit applies to a local part of data
-      rewinding entire state is not necessary
-    consider edits x -> y -> z now see x -> a -> b
-      a < y : a and b are deleted if non-commuting
-      a > y : y and z are deleted if non-commuting
-      1 = createRow(), 2 = setField(1, 'b', 6), 3 = setField(1, 'c', {}), 4 = updateValue(2, 7)
+    siblings have an order: [global-clock, site-id, local-clock]
+      sum(sort(edits)) is actual data
+      see causal lib
     operations
       createRow(table, value)
-        how is id generated, id = op
-        single sort per table?
-      updateValue(op, new-value)
+        id = order?
+      update(op, new-value)
       addField(op, field, value)
       deleteRow(op)
     transaction - can't happen since history is not linear
+      logically it's a simultaneous set of read & writes
       update([read-ops], [write-ops], [values])
 
 fake-proto
