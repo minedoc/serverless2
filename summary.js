@@ -65,37 +65,42 @@ db.dict('foo').sort(byDate) : SortedDict
 db.list('foo').map(extend).filter(conditions) : SortedDict
   iterate, key
 
-function NestedSortedDict(items) {
+function NestedSortedDict(items, root) {
   const rows = new Map();
-  const after = new DefaultMap(key => new SortedDict());
+  rows.set(root, {null, after: new SortedDict()});
 
   function load(items) {
     for (const row of items) {
-      rows.set(row.$id, ref);
-      after.get(row.$after).insert(row);
+      rows.set(row.$id, {row, after: new SortedDict()});
+    }
+    for (const row of items) {
+      rows.get(row.$after).after.insert(rows.get(row.$id));
     }
   }
   function get(key) {
-    return rows.get(key);
+    return rows.get(key).row;
   }
   function insert(key, row) {
-    const ref = {row, after: SortedDict()};
-    rows.set(key, ref);
-    after.get(row.$after).insert(row);
+    rows.set(row.$id, {row, after: new SortedDict()});
+    rows.get(row.$after).after.insert(rows.get(row.$id));
   }
   function update(key, row) {
-    rows.get(key) = row;
+    rows.get(key).row = row;
   }
   function asDict() {
-    return new ReadOnlyMap(rows);
+    return new RowDict(rows);
   }
-  function iterate(key) {
-    yield rows.get(key);
-    for (const key in after.get(key)) {
-    yield from iterate();
+  function* iterate(key) {
+    const ref = rows.get(key);
+    if (ref.row != null) {
+      yield ref.row;
+    }
+    for (const row in ref.after) {
+      yield* iterate(row);
+    }
   }
-  function asList() {
-    
+  function* asList() {
+    yield* iterate(root);
   }
   return {get, insert, update, asDict, asList, load}
 }
