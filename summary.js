@@ -67,33 +67,35 @@ db.list('foo').map(extend).filter(conditions) : SortedDict
 
 function NestedSortedDict(items) {
   const rows = new Map();
+  const after = new DefaultMap(key => new SortedDict());
 
   function load(items) {
-    const after = new MapSet();
     for (const row of items) {
-      const ref = {row, after: SortedDict()}
       rows.set(row.$id, ref);
-      after.add(row.$after, ref);
-    }
-    for (const [id, afterItems] of after) {
-      rows.get(id).after.insertMany(afterItems);
+      after.get(row.$after).insert(row);
     }
   }
   function get(key) {
-    return rows.get(key).row;
+    return rows.get(key);
   }
   function insert(key, row) {
     const ref = {row, after: SortedDict()};
     rows.set(key, ref);
-    rows.get(row.$after).after.insert(row);
+    after.get(row.$after).insert(row);
   }
   function update(key, row) {
-    rows.get(key).row = row;
+    rows.get(key) = row;
   }
   function asDict() {
+    return new ReadOnlyMap(rows);
+  }
+  function iterate(key) {
+    yield rows.get(key);
+    for (const key in after.get(key)) {
+    yield from iterate();
   }
   function asList() {
-    // iterate
+    
   }
   return {get, insert, update, asDict, asList, load}
 }
@@ -196,6 +198,32 @@ out of scope
   indexes
     we expect everything to fit in memory
     filter is incremental
+
+how to have efficient delta on sorted list
+  tree with count of filtered items, search up and down the tree to find N>0
+  findPrevUp(x) {
+    const parent = x.parent;
+    if (parent == null) {
+      return null;
+    } else if (parent.left == x) {
+      return findPrevUp(x.parent);
+    } else if (parent.isVisible) {
+      return x.parent;
+    } else if (parent.left.count > 0) {
+      return findPrevDown(x.parent.left);
+    } else {
+      return findPrevUp(x.parent);
+    }
+  }
+  findPrevDown(x) {
+    if (x.right.count > 0) {
+      return findPrevDown(x.right);
+    } else if (x.isVisible) {
+      return x;
+    } else {
+      return findPrevDown(x.left);
+    }
+  }
 
 how to persist order in database
   map<Key -> (A, B)>
