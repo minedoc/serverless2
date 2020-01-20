@@ -27,14 +27,14 @@ function Gossip(discovery) {
   return {onEntry: entryWatcher.watch, sendEntry};
 }
 
-Id = Binary()
+Id = Binary()  // hash(edit)
 CreateTable = Struct({
   // no name!
   ordered: Bool(),
 })
 Insert = Struct({
   value: JsonObject(),
-  target: Id(),  // ordered ? Insert/CreateTable : CreateTable
+  target: Id(),
 })
 Update = Struct({
   target: Id(),
@@ -66,19 +66,36 @@ db.list('foo').map(extend).filter(conditions) : SortedDict
   iterate, key
 
 function NestedSortedDict(items, root) {
-  const rows = new Map();
-  rows.set(root, {null, after: new SortedDict()});
+  const watchers = new Set();
+  const notify = (...params) => watchers.forEach(w => w(...params));
+  const rows = new Map([[root, {null, after: new SortedDict()}]]);
 
-  function load(items) {
-    for (const row of items) {
-      rows.set(row.$id, {row, after: new SortedDict()});
-    }
-    for (const row of items) {
-      rows.get(row.$after).after.insert(rows.get(row.$id));
-    }
+  for (const row of items) {
+    rows.set(row.$id, {row, after: new SortedDict()});
+  }
+  for (const row of items) {
+    rows.get(row.$after).after.insert(rows.get(row.$id));
+  }
+
+  function watch(watcher) {
+    watchers.add(watcher);
   }
   function get(key) {
     return rows.get(key).row;
+  }
+  function asDict() {
+    return new RowDict(rows);
+  }
+  function* iterateNode(node) {
+    if (node.row != null) {
+      yield node.row;
+    }
+    for (const row in node.after) {
+      yield* iterate(row);
+    }
+  }
+  function* asList() {
+    yield* iterate(rows.get(key));
   }
   function insert(key, row) {
     rows.set(row.$id, {row, after: new SortedDict()});
@@ -87,56 +104,29 @@ function NestedSortedDict(items, root) {
   function update(key, row) {
     rows.get(key).row = row;
   }
-  function asDict() {
-    return new RowDict(rows);
-  }
-  function* iterate(key) {
-    const ref = rows.get(key);
-    if (ref.row != null) {
-      yield ref.row;
-    }
-    for (const row in ref.after) {
-      yield* iterate(row);
-    }
-  }
-  function* asList() {
-    yield* iterate(root);
-  }
-  return {get, insert, update, asDict, asList, load}
+  return {
+    load, watch,
+    get, asDict, asList, iterate,
+    insert, update, delete}
 }
 
-async function CrdtTable(idb, tableId) {
-  const watchers = new Set();
-  const notify = (...params) => watchers.forEach(w => w(...params));
-  const index = NestedSortedDict().load(await db.getAll(tableId));
+async function CrdtTable(idb, tableId, sorted) {
+  const constructor = sorted ? NestedSortedDict : SimpleMap;
+  const mem = constructor(await db.getAll(tableId), tableId);
 
-  async function get(key) {
-    return index.get(key);
-  }
-  async function getDict() {
-    return index.asDict();
-  }
-  async function getList() {
-    return index.asList();
-  }
   async function insert(key, row) {
-    notify(INSERT, key, row);
-    index.insert(key, row);
+    mem.insert(key, row);
     return db.put(tableId, row, key);
   }
   async function update(key, row) {
-    notify(UPDATE, key, row);
-    index.update(key, row);
+    mem.update(key, row);
     return db.put(tableId, row, key);
   }
   async function delete(key) {
-    notify(DELETE, key);
+    mem.delete(key);
     return db.put(tableId, null, key);
   }
-  async function watch(watcher) {
-    watchers.add(watcher);
-  }
-  return {get, iterate, insert, update, delete, watch};
+  return Object.assign({}, mem, {insert, update, delete});
 }
 
 function WorkQueue(idb, process) {
@@ -182,9 +172,35 @@ function Crdt(gossip, idb) {
   return tableFromId;
 }
 
+function FilterList() {
+  function findPrevUp(x) {
+    const parent = x.parent;
+    if (parent == null) {
+      return null;
+    } else if (parent.left == x) {
+      return findPrevUp(x.parent);
+    } else if (parent.isVisible) {
+      return x.parent;
+    } else if (parent.left.count > 0) {
+      return findPrevDown(x.parent.left);
+    } else {
+      return findPrevUp(x.parent);
+    }
+  }
+  function findPrevDown(x) {
+    if (x.right.count > 0) {
+      return findPrevDown(x.right);
+    } else if (x.isVisible) {
+      return x;
+    } else {
+      return findPrevDown(x.left);
+    }
+  }
+}
+
 function Database(crdt) {
   return {
-    map, filter, group, sort,
+    get, map, filter, group, sort,
     insert, update, delete
   };
 }
@@ -204,46 +220,29 @@ out of scope
     we expect everything to fit in memory
     filter is incremental
 
-how to have efficient delta on sorted list
-  tree with count of filtered items, search up and down the tree to find N>0
-  findPrevUp(x) {
-    const parent = x.parent;
-    if (parent == null) {
-      return null;
-    } else if (parent.left == x) {
-      return findPrevUp(x.parent);
-    } else if (parent.isVisible) {
-      return x.parent;
-    } else if (parent.left.count > 0) {
-      return findPrevDown(x.parent.left);
-    } else {
-      return findPrevUp(x.parent);
-    }
-  }
-  findPrevDown(x) {
-    if (x.right.count > 0) {
-      return findPrevDown(x.right);
-    } else if (x.isVisible) {
-      return x;
-    } else {
-      return findPrevDown(x.left);
-    }
-  }
+data structures
+  Map(key => val)
+    key is created for you, unlikely to collide
+  Object(key => val)
+    you set key, lww
+  List(key => val)
+    like map but with ordering
 
-how to persist order in database
-  map<Key -> (A, B)>
-  map<A -> C>
-  compare: C < C' or (C == C' and B < B')
-  insert:
-    prev -> (A, B)
-    update (A, b = b+1 where b > B)
-    if too many B in A
-      split A
-  insert requires updating(B/2 + B/2) items (update B, update A)
+do we get to choose refs?
+  table name, row key
+  what about like git:
+    refs [ name => id ]
+  what about you just hard code it?
+  note hash(Entry(clock: 1, op: CreateTable()) will collide for same clock!
+    this only causes troubles where you intended to create two lists but got one
 
-how to represent local edits
-  these changes not written to the database - edit-before-save, local options
-  join against local-db
+how to represent
+  local edits
+    these changes not written to the database - edit-before-save, local options
+    join against local-db
+  not-replicated edits
+    choose override or underride
+    CreateTable operations get re-clocked to avoid collision
 
 encryption - do later!
   x -> peerKey: talk to peers - Discovery
