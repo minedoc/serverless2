@@ -28,28 +28,28 @@ function Gossip(discovery) {
 }
 
 Id = Binary()  // hash(edit)
-CreateTable = Struct({
+TableCreate = Struct({
   // no name!
   ordered: Bool(),
 })
-Insert = Struct({
+TableInsert = Struct({
   value: JsonObject(),
   target: Id(),
 })
-Update = Struct({
+TableUpdate = Struct({
   target: Id(),
   value: JsonObject(),
 })
-Delete = Struct({
+TableDelete = Struct({
   target: Id(),
 })
 Entry = Struct({
   clock: PackedInt(1, {
-    clock: PackedInt.Field(1, 40),
+    global: PackedInt.Field(1, 40),
     site: PackedInt.Field(2, 8),
     local: PackedInt.Field(3, 16),
   }),
-  op: OneOf(2, [CreateTable, Insert, Update, Delete])
+  op: OneOf(2, [TableCreate, TableInsert, TableInsert, TableUpdate, TableDelete])
 })
 
 db = Database({
@@ -90,12 +90,9 @@ function NestedSortedDict(items, root) {
     if (node.row != null) {
       yield node.row;
     }
-    for (const row in node.after) {
+    for (const row of node.after) {
       yield* iterate(row);
     }
-  }
-  function* asList() {
-    yield* iterate(rows.get(key));
   }
   function insert(key, row) {
     rows.set(row.$id, {row, after: new SortedDict()});
@@ -104,9 +101,12 @@ function NestedSortedDict(items, root) {
   function update(key, row) {
     rows.get(key).row = row;
   }
+  function delete(key) {
+    // TODO
+  }
   return {
-    load, watch,
-    get, asDict, asList, iterate,
+    watch,
+    get, asDict, iterate,
     insert, update, delete}
 }
 
@@ -129,8 +129,9 @@ async function CrdtTable(idb, tableId, sorted) {
   return Object.assign({}, mem, {insert, update, delete});
 }
 
-function WorkQueue(idb, process) {
+function OpQueue(idb, process) {
   const pending = new MapSet();
+  // pending = load(idb);
   function enqueue(entry) {
     if (!entry.op.target || tableFromId(entry.op.target)) {
       recursiveEnqueue(entry);
@@ -150,52 +151,29 @@ function WorkQueue(idb, process) {
 
 function Crdt(gossip, idb) {
   const tableFromId = id => new CrdtTable(TODO);
-  const workQueue = WorkQueue(idb, entry => {
+  const opQueue = OpQueue(idb, entry => {
     const op = entry.op;
     const id = hash(entry);
     const table = tableFromId(op.target);
-    if (op.$type == Insert) {
+    if (op.$type == TableCreate) {
+      // TODO
+    } else if (op.$type == TableInsert) {
       table.insert(id, Object.assign(op.value, {$clock: entry.clock, $id: id, $after: op.target}));
-    } else if (op.$type == Update) {
+    } else if (op.$type == TableUpdate) {
+      // TODO row = table.get(id)
       if (row == null) {
         return;
       } else if (row.$clock < entry.clock) {
-        table.update(op.target, Object.assign(row, op.value, {$clock: entry.clock});
+        table.update(op.target, Object.assign(row, op.value, {$clock: entry.clock}));
       } else {
         table.update(op.target, merge(table.getUpdates(op.target), entry));
       }
-    } else if (op.$type == Delete) {
+    } else if (op.$type == TableDelete) {
       table.delete(op.target);
     }
   });
-  gossip.onEntry(entry => workQueue.enqueue(entry));
+  gossip.onEntry(entry => opQueue.enqueue(entry));
   return tableFromId;
-}
-
-function FilterList() {
-  function findPrevUp(x) {
-    const parent = x.parent;
-    if (parent == null) {
-      return null;
-    } else if (parent.left == x) {
-      return findPrevUp(x.parent);
-    } else if (parent.isVisible) {
-      return x.parent;
-    } else if (parent.left.count > 0) {
-      return findPrevDown(x.parent.left);
-    } else {
-      return findPrevUp(x.parent);
-    }
-  }
-  function findPrevDown(x) {
-    if (x.right.count > 0) {
-      return findPrevDown(x.right);
-    } else if (x.isVisible) {
-      return x;
-    } else {
-      return findPrevDown(x.left);
-    }
-  }
 }
 
 function Database(crdt) {
@@ -219,6 +197,8 @@ out of scope
   indexes
     we expect everything to fit in memory
     filter is incremental
+  map and filter
+    leave them out for first draft
 
 data structures
   Map(key => val)
