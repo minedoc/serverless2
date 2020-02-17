@@ -27,149 +27,107 @@ function Gossip(discovery) {
   return {onEntry: entryWatcher.watch, sendEntry};
 }
 
-Id = Binary()  // hash(edit)
-TableCreate = Struct({
-  // no name!
-  ordered: Bool(),
-})
-TableInsert = Struct({
-  value: JsonObject(),
-  target: Id(),
-})
-TableUpdate = Struct({
-  target: Id(),
-  value: JsonObject(),
-})
-TableDelete = Struct({
-  target: Id(),
-})
-Entry = Struct({
-  clock: PackedInt(1, {
-    global: PackedInt.Field(1, 40),
-    site: PackedInt.Field(2, 8),
-    local: PackedInt.Field(3, 16),
-  }),
-  op: OneOf(2, [TableCreate, TableInsert, TableInsert, TableUpdate, TableDelete])
-})
-
-db = Database({
-  crdt: Crdt(...),
-  aliases: {
-    foo: Entry(clock)
-  },
-})
-db.dict('foo').map(extend).filter(conditions).group(x => x.name) : Dict
-  key
-db.dict('foo').sort(byDate) : SortedDict
-  iterate, key
-db.list('foo').map(extend).filter(conditions) : SortedDict
-  iterate, key
-
-function NestedSortedDict(items, root) {
-  const watchers = new Set();
-  const notify = (...params) => watchers.forEach(w => w(...params));
-  const rows = new Map([[root, {null, after: new SortedDict()}]]);
-
-  for (const row of items) {
-    rows.set(row.$id, {row, after: new SortedDict()});
-  }
-  for (const row of items) {
-    rows.get(row.$after).after.insert(rows.get(row.$id));
-  }
-
-  function watch(watcher) {
-    watchers.add(watcher);
-  }
-  function get(key) {
-    return rows.get(key).row;
-  }
-  function asDict() {
-    return new RowDict(rows);
-  }
-  function* iterateNode(node) {
-    if (node.row != null) {
-      yield node.row;
-    }
-    for (const row of node.after) {
-      yield* iterate(row);
-    }
-  }
-  function insert(key, row) {
-    rows.set(row.$id, {row, after: new SortedDict()});
-    rows.get(row.$after).after.insert(rows.get(row.$id));
-  }
-  function update(key, row) {
-    rows.get(key).row = row;
-  }
-  function delete(key) {
-    // TODO
-  }
-  return {
-    watch,
-    get, asDict, iterate,
-    insert, update, delete}
+function Schema() {
+  Id = Binary()  // hash(edit)
+  TableCreate = Struct({
+    // no name!
+    ordered: Bool(),
+  })
+  TableInsert = Struct({
+    value: JsonObject(),
+    target: Id(),
+  })
+  TableUpdate = Struct({
+    target: Id(),
+    value: JsonObject(),
+  })
+  TableDelete = Struct({
+    target: Id(),
+  })
+  Entry = Struct({
+    clock: PackedInt(1, {
+      global: PackedInt.Field(1, 40),
+      site: PackedInt.Field(2, 8),
+      local: PackedInt.Field(3, 16),
+    }),
+    op: OneOf(2, [TableCreate, TableInsert, TableInsert, TableUpdate, TableDelete])
+  })
 }
 
-async function CrdtTable(idb, tableId, sorted) {
-  const constructor = sorted ? NestedSortedDict : SimpleMap;
-  const mem = constructor(await db.getAll(tableId), tableId);
+function TableCrdt(items, root) {
+  const rows = new Map();
+  for (const row of items) {
+    rows.set(row.$id, row);
+  }
 
-  async function insert(key, row) {
-    mem.insert(key, row);
-    return db.put(tableId, row, key);
+  function get(id) {
+    return rows.get(id);
   }
-  async function update(key, row) {
-    mem.update(key, row);
-    return db.put(tableId, row, key);
+  function* iterate() {
+    for (const row of rows) {
+      yield row;
+    }
   }
-  async function delete(key) {
-    mem.delete(key);
-    return db.put(tableId, null, key);
+  function insert(id, row) {
+    rows.set(id, row);
   }
-  return Object.assign({}, mem, {insert, update, delete});
+  function update(id, row) {
+    rows.set(id, row);
+  }
+  function delete(id) {
+    rows.delete(id);
+  }
+  return {
+    get, iterate,
+    insert, update, delete}
 }
 
 function OpQueue(idb, process) {
   const pending = new MapSet();
-  // pending = load(idb);
+  for (const [k, v] of await idb.getAll('queue')) {
+    pending.add(k, v);
+  }
+  function targetAvailable(target) {
+    return target == undefined || TODO;
+  }
   function enqueue(entry) {
-    if (!entry.op.target || tableFromId(entry.op.target)) {
-      recursiveEnqueue(entry);
+    if (targetAvailable(entry.op.target)) {
+      recursiveDequeue(entry);
     } else {
       pending.add(entry.op.target, entry);
     }
   }
-  function recursiveEnqueue(entry) {
+  function recursiveDequeue(entry) {
     process(entry);
     const id = hash(entry);
     if (pending.has(id)) {
-      pending.remove(id).forEach(e => recursiveEnqueue(e));
+      pending.remove(id).forEach(e => recursiveDequeue(e));
     }
   }
   return {enqueue};
 }
 
 function Crdt(gossip, idb) {
-  const tableFromId = id => new CrdtTable(TODO);
-  const opQueue = OpQueue(idb, entry => {
+  const tableFromId = TODO;
+  const opQueue = OpQueue(idb, async entry => {
     const op = entry.op;
     const id = hash(entry);
-    const table = tableFromId(op.target);
-    if (op.$type == TableCreate) {
-      // TODO
-    } else if (op.$type == TableInsert) {
-      table.insert(id, Object.assign(op.value, {$clock: entry.clock, $id: id, $after: op.target}));
-    } else if (op.$type == TableUpdate) {
-      // TODO row = table.get(id)
-      if (row == null) {
+    const table = await tableFromId(op.target);
+    switch (op.$type) {
+      case TableCreate:
         return;
-      } else if (row.$clock < entry.clock) {
-        table.update(op.target, Object.assign(row, op.value, {$clock: entry.clock}));
-      } else {
-        table.update(op.target, merge(table.getUpdates(op.target), entry));
-      }
-    } else if (op.$type == TableDelete) {
-      table.delete(op.target);
+      case TableInsert:
+        var row = Object.assign(op.value, {$clock: entry.clock, $id: id, $after: op.target});
+        mem.insert(id, row);
+        return await db.put(tableId, row, id);
+      case TableUpdate:
+        var row = merge(table.getEdits(id), op.value);;
+        row = merge(op.target, entry);
+        mem.update(id, row);
+        return await db.put(tableId, row, id);
+      case TableDelete:
+        mem.delete(key);
+        return await db.put(tableId, null, key);
     }
   });
   gossip.onEntry(entry => opQueue.enqueue(entry));
@@ -197,8 +155,10 @@ out of scope
   indexes
     we expect everything to fit in memory
     filter is incremental
-  map and filter
+  watch -> map and filter
     leave them out for first draft
+  ordered dictionaries
+    do later
 
 data structures
   Map(key => val)
