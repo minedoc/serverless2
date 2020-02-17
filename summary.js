@@ -54,32 +54,19 @@ function Schema() {
   })
 }
 
-function TableCrdt(items, root) {
+function UnorderedTable(items, root) {
   const rows = new Map();
-  for (const row of items) {
-    rows.set(row.$id, row);
+  for (const [id, row] of items) {
+    rows.set(id, row);
   }
 
-  function get(id) {
-    return rows.get(id);
-  }
-  function* iterate() {
-    for (const row of rows) {
-      yield row;
-    }
-  }
-  function insert(id, row) {
-    rows.set(id, row);
-  }
-  function update(id, row) {
-    rows.set(id, row);
-  }
-  function delete(id) {
-    rows.delete(id);
-  }
   return {
-    get, iterate,
-    insert, update, delete}
+    get: id => rows.get(id),
+    iterate: function*() { for (const row of rows) yield row; },
+    insert: (id, row) => rows.set(id, row),
+    update: (id, row) => rows.set(id, row),
+    delete: (id) => rows.delete(id),
+  }
 }
 
 function OpQueue(idb, process) {
@@ -107,7 +94,7 @@ function OpQueue(idb, process) {
   return {enqueue};
 }
 
-function Crdt(gossip, idb) {
+function ReplicatedTables(gossip, idb) {
   const tableFromId = TODO;
   const opQueue = OpQueue(idb, async entry => {
     const op = entry.op;
