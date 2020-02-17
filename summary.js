@@ -121,7 +121,7 @@ function Crdt(gossip, idb) {
         mem.insert(id, row);
         return await db.put(tableId, row, id);
       case TableUpdate:
-        var row = merge(table.getEdits(id), op.value);;
+        var row = merge(table.getEdits(id), op.value);
         row = merge(op.target, entry);
         mem.update(id, row);
         return await db.put(tableId, row, id);
@@ -134,14 +134,7 @@ function Crdt(gossip, idb) {
   return tableFromId;
 }
 
-function Database(crdt) {
-  return {
-    get, map, filter, group, sort,
-    insert, update, delete
-  };
-}
-
-Database(Crdt(Gossip(Discovery(server, name)), idb));
+Crdt(Gossip(Discovery(server, name)), idb);
 
 /*
 out of scope

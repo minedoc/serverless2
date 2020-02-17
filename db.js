@@ -1,3 +1,10 @@
+function Database(crdt, aliases) {
+  return {
+    get, map, filter, group, sort,
+    insert, update, delete
+  };
+}
+
 db = Database({
   crdt: Crdt(...),
   aliases: {
