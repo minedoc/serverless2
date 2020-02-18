@@ -8,9 +8,9 @@ function Gossip(discovery) {
   const entryWatcher = new Observer();
   const serverDefinition = {
     push: [PushRequest, PushResponse, req => {
-      if (!seen.has(req.entry)) {
-        entryWatcher.notify(req.entry);
-        seen.set(req.entry, 1);
+      if (!seen.has(req.change)) {
+        entryWatcher.notify(req.change);
+        seen.set(req.change, 1);
       }
     }],
   };
@@ -19,9 +19,9 @@ function Gossip(discovery) {
     peer.serve(serverDefinition);
     peer.pushClient = peer.client(serverDefinition);
   });
-  const sendEntry = entry => {
+  const sendEntry = change => {
     for (peer of peers) {
-      peer.pushClient.push(entry);
+      peer.pushClient.push(change);
     }
   }
   return {onEntry: entryWatcher.watch, sendEntry};
@@ -44,7 +44,7 @@ function Schema() {
   TableDelete = Struct({
     target: Id(),
   })
-  Entry = Struct({
+  Change = Struct({
     clock: PackedInt(1, {
       global: PackedInt.Field(1, 40),
       site: PackedInt.Field(2, 8),
@@ -60,68 +60,73 @@ function UnorderedTable(items, root) {
     rows.set(id, row);
   }
 
+  function processChange(change) {
+    switch (op.$type) {
+      case TableCreate:
+        return;
+      case TableInsert:
+        var row = Object.assign(op.value, {$clock: change.clock, $id: id, $after: op.target});
+        mem.insert(id, row);
+        return await db.put(tableId, row, id);
+      case TableUpdate:
+        var row = merge(table.getEdits(id), op.value);
+        row = merge(op.target, change);
+        mem.update(id, row);
+        return await db.put(tableId, row, id);
+      case TableDelete:
+        mem.delete(id);
+        return await db.put(tableId, null, id);
+      default:
+        todo();
+    }
+  }
+
   return {
     get: id => rows.get(id),
     iterate: function*() { for (const row of rows) yield row; },
-    insert: (id, row) => rows.set(id, row),
-    update: (id, row) => rows.set(id, row),
-    delete: (id) => rows.delete(id),
+    insert, update, delete,  // local change
+    processChange,  // remote change
   }
 }
 
-function OpQueue(idb, process) {
+function ChangeQueue(db, processChange) {
   const pending = new MapSet();
-  for (const [k, v] of await idb.getAll('queue')) {
-    pending.add(k, v);
+  for (const change of await db.getAll('queue')) {
+    pending.add(change.op.target, change);
   }
   function targetAvailable(target) {
     return target == undefined || TODO;
   }
-  function enqueue(entry) {
-    if (targetAvailable(entry.op.target)) {
-      recursiveDequeue(entry);
+  function enqueue(change) {
+    if (targetAvailable(change.op.target)) {
+      recursiveDequeue(change);
     } else {
-      pending.add(entry.op.target, entry);
+      pending.add(change.op.target, change);
+      db.put('queue', change);  // todo
     }
   }
-  function recursiveDequeue(entry) {
-    process(entry);
-    const id = hash(entry);
+  function recursiveDequeue(change) {
+    processChange(change);
+    db.remove('queue', change);
+    const id = hash(change);
     if (pending.has(id)) {
       pending.remove(id).forEach(e => recursiveDequeue(e));
+      db.remove('queue', change);
     }
   }
   return {enqueue};
 }
 
-function ReplicatedTables(gossip, idb) {
-  const tableFromId = TODO;
-  const opQueue = OpQueue(idb, async entry => {
-    const op = entry.op;
-    const id = hash(entry);
-    const table = await tableFromId(op.target);
-    switch (op.$type) {
-      case TableCreate:
-        return;
-      case TableInsert:
-        var row = Object.assign(op.value, {$clock: entry.clock, $id: id, $after: op.target});
-        mem.insert(id, row);
-        return await db.put(tableId, row, id);
-      case TableUpdate:
-        var row = merge(table.getEdits(id), op.value);
-        row = merge(op.target, entry);
-        mem.update(id, row);
-        return await db.put(tableId, row, id);
-      case TableDelete:
-        mem.delete(key);
-        return await db.put(tableId, null, key);
-    }
+function Tables(gossip, db) {
+  const getTable = TODO;
+  const getTableByRowId = TODO;
+  const changeQueue = ChangeQueue(db, async change => {
+    const table = await getTableByRowId(change.op.target);
+    table.processChange(change);
   });
-  gossip.onEntry(entry => opQueue.enqueue(entry));
-  return tableFromId;
+  gossip.onEntry(change => changeQueue.enqueue(change));
+  return getTable;
 }
-
-Crdt(Gossip(Discovery(server, name)), idb);
 
 /*
 out of scope
@@ -153,7 +158,7 @@ do we get to choose refs?
   what about like git:
     refs [ name => id ]
   what about you just hard code it?
-  note hash(Entry(clock: 1, op: CreateTable()) will collide for same clock!
+  note hash(change(clock: 1, op: CreateTable()) will collide for same clock!
     this only causes troubles where you intended to create two lists but got one
 
 how to represent

@@ -1,3 +1,11 @@
+const db = Database('tracker.host.com', 'dataset', keys, {
+  items: Table(1, 0, 1, true),
+  other: Table(2, 0, 1, true),
+});
+db.items.insert(obj) -> binaryId
+db.items.get(binaryId) -> obj
+
+/*
 function Database(crdt, aliases) {
   return {
     get, map, filter, group, sort,
