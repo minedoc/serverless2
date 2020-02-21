@@ -89,6 +89,35 @@ function UnorderedTable(items, root) {
   }
 }
 
+function LastWriterWins() {
+  const unrooted = new Map();  // target -> [edit]
+  const terminal = new SortedMap();  // id -> edit, sorted by clock; subset of rooted
+  const rooted = new Map();  // id -> edit
+  function add(edit) {
+    if (rooted.has(edit) || unrooted.has(edit)) {
+      return;
+    }
+    if (rooted.has(edit.op.target)) {
+      move(edit);
+      if (terminal.has(edit.op.target)) {
+        terminal.remove(edit.op.target);
+      }
+    } else {
+      unrooted.addTo(edit.op.target, edit);
+    }
+  }
+  function move(edit) {
+    rooted.add(edit);
+    const children = unrooted.getDelete(edit);
+    if (children.size() == 0) {
+      terminal.add(edit);
+    } else {
+      children.forEach(move);
+    }
+  }
+  return {add};
+}
+
 function ChangeQueue(db, processChange) {
   const pending = new MapSet();
   for (const change of await db.getAll('queue')) {

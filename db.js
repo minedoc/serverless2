@@ -1,30 +1,21 @@
 const db = Database('tracker.host.com', 'dataset', keys, {
-  items: Table(1, 0, 1, true),
-  other: Table(2, 0, 1, true),
+  items: UnorderedTable(1, 0, 1),
+  other: OrderedTable(2, 0, 1),
 });
-db.items.insert(obj) -> binaryId
 db.items.get(binaryId) -> obj
+db.items.insert(obj) -> binaryId
+db.items.update(binaryId, obj)
+db.items.delete(binaryId)
 
 /*
-function Database(crdt, aliases) {
-  return {
-    get, map, filter, group, sort,
-    insert, update, delete
-  };
-}
 
-db = Database({
-  crdt: Crdt(...),
-  aliases: {
-    foo: Entry(clock)
-  },
-})
-db.dict('foo').map(extend).filter(conditions).group(x => x.name) : Dict
-  key
-db.dict('foo').sort(byDate) : SortedDict
-  iterate, key
-db.list('foo').map(extend).filter(conditions) : SortedDict
-  iterate, key
+todo:
+  migrations - schema change
+  how to express queries
+    select, where, group by, order by, join
+    db.query('sql').get(bindings)
+  live queries
+    db.query('sql').live(bindings).get()
 
 function FilterList() {
   function findPrevUp(x) {
