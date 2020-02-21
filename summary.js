@@ -89,30 +89,33 @@ function UnorderedTable(items, root) {
   }
 }
 
-function LastWriterWins() {
+function LastWriterWins(setValue) {
+  // OR one per row????
   const unrooted = new Map();  // target -> [edit]
   const terminal = new SortedMap();  // id -> edit, sorted by clock; subset of rooted
-  const rooted = new Map();  // id -> edit
+  const rooted = new Map();  // id -> root
   function add(edit) {
-    if (rooted.has(edit) || unrooted.has(edit)) {
+    if (rooted.has(edit) || unrooted.has(edit)) { // processed
       return;
-    }
-    if (rooted.has(edit.op.target)) {
-      move(edit);
-      if (terminal.has(edit.op.target)) {
-        terminal.remove(edit.op.target);
-      }
-    } else {
-      unrooted.addTo(edit.op.target, edit);
+    } else if (edit.op.target == null) { // root
+      move(edit.id, edit);
+      setValue(edit.id, edit.op.value)
+    } else if (rooted.has(edit.op.target)) { // branch
+      move(root, edit);
+      const root = rooted.get(edit.op.target);
+      terminal.remove(root, edit.op.target);
+      setValue(root, terminal.get(root).biggest); // TODO
+    } else { // orphan
+      unrooted.add(edit.op.target, edit);
     }
   }
-  function move(edit) {
-    rooted.add(edit);
+  function move(root, edit) {
+    rooted.add(root, edit);
     const children = unrooted.getDelete(edit);
     if (children.size() == 0) {
       terminal.add(edit);
     } else {
-      children.forEach(move);
+      children.forEach(e => move(root, e));
     }
   }
   return {add};
