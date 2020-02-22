@@ -33,114 +33,100 @@ function Schema() {
     // no name!
     ordered: Bool(),
   })
-  TableInsert = Struct({
+  TableInsertRow = Struct({
     value: JsonObject(),
     target: Id(),
   })
-  TableUpdate = Struct({
+  TableUpdateRow = Struct({
     target: Id(),
     value: JsonObject(),
   })
-  TableDelete = Struct({
+  TableDeleteRow = Struct({
     target: Id(),
   })
-  Change = Struct({
+  Edit = Struct({
     clock: PackedInt(1, {
       global: PackedInt.Field(1, 40),
       site: PackedInt.Field(2, 8),
       local: PackedInt.Field(3, 16),
     }),
-    op: OneOf(2, [TableCreate, TableInsert, TableInsert, TableUpdate, TableDelete])
+    op: OneOf(2, [TableCreate, TableInsertRow, TableUpdateRow, TableDeleteRow])
   })
 }
 
-function UnorderedTable(items, root) {
-  const rows = new Map();
-  for (const [id, row] of items) {
-    rows.set(id, row);
+function UnorderedTable(db, tableRoot) {
+  const rows = new DbMap(db.store(tableRoot, 'contents'));  // Map<RowRoot, Value>
+  const unrooted = new DbMapSet(db.store(tableRoot, 'unrooted'));  // Map<RowRoot, Set<Edit>>
+  const leaf = new DbMapSortedSet(db.store(tableRoot, 'leaf'));  // Map<RowRoot, SortedSet<Edit, EditClock>>
+  const rooted = new DbSet(db.store(tableRoot, 'rooted'));  // Set<EditId, RowRoot>
+  const tombstone = new DbSet(db.store(tableRoot, 'tombstone'));  // Set<Edit>
+
+  async function applyEdit(edit) {
+    const type = edit.op.$type;
+    const editId = hash(edit);
+    if (type == TableInsertRow) {
+      await rows.set(editId, edit.op.value);
+      await leaf.add(editId, edit);
+      await rooted.set(editId, editId);
+    } else if (type == TableUpdateRow) {
+      if (tombstone.has(edit) || rooted.has(editId) || unrooted.has(edit)) {
+        return;
+      } else if (rooted.has(editId)) {
+        const rowId = rooted.get(editId);
+        await leaf.remove(edit.op.target);
+        await move(rowId, edit);
+        await rows.set(rowId, leaf.get(rowId).biggest);
+      } else {
+        await unrooted.add(edit.op.target, edit);
+      }
+    } else if (type == TableDeleteRow) {
+      await tombstone.add(edit);
+      await rows.delete(rowId);
+    }
   }
 
-  function processChange(change) {
-    switch (op.$type) {
-      case TableCreate:
-        return;
-      case TableInsert:
-        var row = Object.assign(op.value, {$clock: change.clock, $id: id, $after: op.target});
-        mem.insert(id, row);
-        return await db.put(tableId, row, id);
-      case TableUpdate:
-        var row = merge(table.getEdits(id), op.value);
-        row = merge(op.target, change);
-        mem.update(id, row);
-        return await db.put(tableId, row, id);
-      case TableDelete:
-        mem.delete(id);
-        return await db.put(tableId, null, id);
-      default:
-        todo();
+  async function move(rowId, edit) {
+    await rooted.add(hash(edit), rowId);
+    const children = await unrooted.delete(edit);
+    if (children.size() == 0) {
+      await leaf.add(edit);
+    } else {
+      await Promise.all(children.map(e => move(rowId, e)));
     }
   }
 
   return {
     get: id => rows.get(id),
     iterate: function*() { for (const row of rows) yield row; },
-    insert, update, delete,  // local change
-    processChange,  // remote change
+    insert, update, delete,  // local edit
+    // TODO: how to generate edits
+    applyEdit,  // remote edit
   }
 }
 
-function LastWriterWins() {
-  const unrooted = new Map();  // target -> [edit]
-  const terminal = new SortedMap();  // id -> edit, sorted by clock; subset of rooted
-  const rooted = new Map();  // id -> edit
-  function add(edit) {
-    if (rooted.has(edit) || unrooted.has(edit)) {
-      return;
-    }
-    if (rooted.has(edit.op.target)) {
-      move(edit);
-      if (terminal.has(edit.op.target)) {
-        terminal.remove(edit.op.target);
-      }
-    } else {
-      unrooted.addTo(edit.op.target, edit);
-    }
-  }
-  function move(edit) {
-    rooted.add(edit);
-    const children = unrooted.getDelete(edit);
-    if (children.size() == 0) {
-      terminal.add(edit);
-    } else {
-      children.forEach(move);
-    }
-  }
-  return {add};
-}
-
-function ChangeQueue(db, processChange) {
+function ChangeQueue(db, applyEdit) {
   const pending = new MapSet();
-  for (const change of await db.getAll('queue')) {
-    pending.add(change.op.target, change);
+  for (const edit of await db.getAll('queue')) {
+    pending.add(edit.op.target, edit);
   }
   function targetAvailable(target) {
     return target == undefined || TODO;
   }
-  function enqueue(change) {
-    if (targetAvailable(change.op.target)) {
-      recursiveDequeue(change);
+  function enqueue(edit) {
+    if (targetAvailable(edit.op.target)) {
+      recursiveDequeue(edit);
     } else {
-      pending.add(change.op.target, change);
-      db.put('queue', change);  // todo
+      pending.add(edit.op.target, edit);
+      db.put('queue', edit);  // todo
     }
   }
-  function recursiveDequeue(change) {
-    processChange(change);
-    db.remove('queue', change);
-    const id = hash(change);
+  function recursiveDequeue(edit) {
+    applyEdit(edit);
+    db.remove('queue', edit);
+    const id = hash(edit);
     if (pending.has(id)) {
       pending.remove(id).forEach(e => recursiveDequeue(e));
-      db.remove('queue', change);
+      db.remove('queue', edit);
     }
   }
   return {enqueue};
@@ -149,11 +135,11 @@ function ChangeQueue(db, processChange) {
 function Tables(gossip, db) {
   const getTable = TODO;
   const getTableByRowId = TODO;
-  const changeQueue = ChangeQueue(db, async change => {
-    const table = await getTableByRowId(change.op.target);
-    table.processChange(change);
+  const changeQueue = ChangeQueue(db, async edit => {
+    const table = await getTableByRowId(edit.op.target);
+    table.applyEdit(edit);
   });
-  gossip.onEntry(change => changeQueue.enqueue(change));
+  gossip.onEntry(edit => changeQueue.enqueue(edit));
   return getTable;
 }
 
