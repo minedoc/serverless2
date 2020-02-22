@@ -105,10 +105,7 @@ function UnorderedTable(db, tableRoot) {
 }
 
 function ChangeQueue(db, applyEdit) {
-  const pending = new MapSet();
-  for (const edit of await db.getAll('queue')) {
-    pending.add(edit.op.target, edit);
-  }
+  const pending = new DbMapSet(db.store('queue');
   function targetAvailable(target) {
     return target == undefined || TODO;
   }
