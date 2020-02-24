@@ -58,8 +58,8 @@ function UnorderedTable(db, tableRoot) {
   const rows = new DbMap(db.store(tableRoot, 'contents'));  // Map<RowRoot, Value>
   const unrooted = new DbMapSet(db.store(tableRoot, 'unrooted'));  // Map<RowRoot, Set<Edit>>
   const leaf = new DbMapSortedSet(db.store(tableRoot, 'leaf'));  // Map<RowRoot, SortedSet<Edit, EditClock>>
-  const rooted = new DbSet(db.store(tableRoot, 'rooted'));  // Set<EditId, RowRoot>
-  const tombstone = new DbSet(db.store(tableRoot, 'tombstone'));  // Set<Edit>
+  const rooted = new DbMap(db.store(tableRoot, 'rooted'));  // Map<EditId, RowRoot>
+  const tombstone = new DbSet(db.store(tableRoot, 'tombstone'));  // Set<Edit> - TODO - not propagated correctly
 
   async function applyEdit(edit) {
     const type = edit.op.$type;
@@ -69,13 +69,13 @@ function UnorderedTable(db, tableRoot) {
       await leaf.add(editId, edit);
       await rooted.set(editId, editId);
     } else if (type == TableUpdateRow) {
-      if (tombstone.has(edit) || rooted.has(editId) || unrooted.has(edit)) {
+      if (tombstone.has(edit) || rooted.has(editId) || unrooted.hasValue(edit)) {
         return;
       } else if (rooted.has(editId)) {
         const rowId = rooted.get(editId);
-        await leaf.remove(edit.op.target);
+        await leaf.removeValue(edit.op.target);
         await move(rowId, edit);
-        await rows.set(rowId, leaf.get(rowId).biggest);
+        await rows.set(rowId, leaf.getKey(rowId).biggest);
       } else {
         await unrooted.add(edit.op.target, edit);
       }
@@ -86,10 +86,10 @@ function UnorderedTable(db, tableRoot) {
   }
 
   async function move(rowId, edit) {
-    await rooted.add(hash(edit), rowId);
-    const children = await unrooted.delete(edit);
+    await rooted.set(hash(edit), rowId);
+    const children = await unrooted.deleteValue(edit);
     if (children.size() == 0) {
-      await leaf.add(edit);
+      await leaf.add(rowId, edit);
     } else {
       await Promise.all(children.map(e => move(rowId, e)));
     }
@@ -105,7 +105,7 @@ function UnorderedTable(db, tableRoot) {
 }
 
 function ChangeQueue(db, applyEdit) {
-  const pending = new DbMapSet(db.store('queue');
+  const queue = new DbMapSet(db.store('queue');
   function targetAvailable(target) {
     return target == undefined || TODO;
   }
@@ -113,17 +113,15 @@ function ChangeQueue(db, applyEdit) {
     if (targetAvailable(edit.op.target)) {
       recursiveDequeue(edit);
     } else {
-      pending.add(edit.op.target, edit);
-      db.put('queue', edit);  // todo
+      queue.add(edit.op.target, edit);
     }
   }
   function recursiveDequeue(edit) {
     applyEdit(edit);
-    db.remove('queue', edit);
+    queue.deleteValue(edit);
     const id = hash(edit);
-    if (pending.has(id)) {
-      pending.remove(id).forEach(e => recursiveDequeue(e));
-      db.remove('queue', edit);
+    if (queue.hasKey(id)) {
+      queue.deleteKey(id).forEach(e => recursiveDequeue(e));
     }
   }
   return {enqueue};
@@ -156,6 +154,15 @@ out of scope
     leave them out for first draft
   ordered dictionaries
     do later
+  update edits (instead of lww)
+    efficient serialization
+    efficient partial updates (timestamped fields) - but timestamp insufficient
+  rebase for long offline
+    pull edits
+    rebase your edits onto head
+      provide a conflict resolver UI for conflicts
+      for LWW not for mis-ordering
+    if only two computers there's no 'head'
 
 data structures
   Map(key => val)
