@@ -56,73 +56,54 @@ function Schema() {
 
 function UnorderedTable(db, tableName) {
   const rows = new DbMap(db.store(tableName, 'contents'));  // Map<RowRoot, Value>
-  const unrooted = new DbMapSet(db.store(tableName, 'unrooted'));  // Map<RowRoot, Set<Edit>>
-  const leaf = new DbMapSortedSet(db.store(tableName, 'leaf'));  // Map<RowRoot, SortedSet<Edit, EditClock>>
-  const rooted = new DbMap(db.store(tableName, 'rooted'));  // Map<EditId, RowRoot>
-  const tombstone = new DbSet(db.store(tableName, 'tombstone'));  // Set<Edit> - TODO - not propagated correctly
 
-  async function applyEdit(edit) {
+  async function mergeEdit(rowId, edit, position) {
     const type = edit.op.$type;
-    const editId = hash(edit);
     if (type == TableInsertRow) {
-      await rows.set(editId, edit.op.value);
-      await leaf.add(editId, edit);
-      await rooted.set(editId, editId);
+      await rows.set(rowId, edit.op.value);
     } else if (type == TableUpdateRow) {
-      if (tombstone.has(edit) || rooted.has(editId) || unrooted.hasValue(edit)) {
-        return;
-      } else if (rooted.has(editId)) {
-        const rowId = rooted.get(editId);
-        await leaf.removeValue(edit.op.target);
-        await move(rowId, edit);
-        await rows.set(rowId, leaf.getKey(rowId).biggest);
-      } else {
-        await unrooted.add(edit.op.target, edit);
-      }
+      // TODO compare position and tombstone and set
+      await rows.set(rowId, TODO);
     } else if (type == TableDeleteRow) {
-      await tombstone.add(edit);
-      await rows.delete(rowId);
-    }
-  }
-
-  async function move(rowId, edit) {
-    await rooted.set(hash(edit), rowId);
-    const children = await unrooted.deleteValue(edit);
-    if (children.size() == 0) {
-      await leaf.add(rowId, edit);
-    } else {
-      await Promise.all(children.map(e => move(rowId, e)));
+      await rows.set(rowId, tombstone);
     }
   }
 
   return {
-    get: id => rows.get(id),
-    iterate: function*() { for (const row of rows) yield row; },
+    get: id => filterTombstone(rows.get(id)),
+    iterate: function*() { for (const row of rows) if (filterTombstone) yield row; },
     insert, update, delete,  // local edit
     // TODO: how to generate edits
-    applyEdit,  // remote edit
+    mergeEdit,  // remote edit
   }
 }
 
-function ChangeQueue(db, applyEdit) {
-  const queue = new DbMapSet(db.store('queue');
-  function targetAvailable(target) {
-    return target == undefined || TODO;
-  }
-  function enqueue(edit) {
-    if (targetAvailable(edit.op.target)) {
-      recursiveDequeue(edit);
+function EditSerializer(db, tableMetadata, applyEdit) {
+  const unrooted = new DbMapSet(db.store(tableName, 'unrooted'));  // Map<Target, Set<Edit>>
+  const rooted = new DbMap(db.store(tableName, 'rooted'));  // Map<EditId, RowRoot>
+
+  async function enqueue(edit) {
+    const type = edit.op.$type;
+    const editId = hash(edit);
+    if (type == TableCreate) {
+      await tableMetadata.set(editId, edit.op);
+    } else if (type == TableInsertRow) {
+      await rowMetadata.set(editId, edit.op.target);
+      await plant(edit.op.target, editId, edit, 0);
+    } else if (seen(edit.op.target)) {
+    } else if (rooted.has(edit.op.target)) {
+      const rowId = rooted.get(edit.op.target);
+      const table = rowMetadata.get(rowId);
+      await plant(table, rowId, edit, TODO);
     } else {
-      queue.add(edit.op.target, edit);
+      await unrooted.add(edit.op.target, edit);
     }
   }
-  function recursiveDequeue(edit) {
-    applyEdit(edit);
-    queue.deleteValue(edit);
-    const id = hash(edit);
-    if (queue.hasKey(id)) {
-      queue.deleteKey(id).forEach(e => recursiveDequeue(e));
-    }
+  async function plant(table, rowId, edit, position) {
+    applyEdit(table, rowId, edit, position);
+    rooted.set(hash(edit), edit);
+    unrooted.deleteValue(edit);
+    unrooted.deleteKey(hash(edit)).forEach(e => plant(table, rowId, e, TODO));
   }
   return {enqueue};
 }
@@ -130,8 +111,8 @@ function ChangeQueue(db, applyEdit) {
 function Tables(gossip, db) {
   const tableMetadata = new Map(db.store('tableMetadata'));
   const getTable = tableName => loadTable(db, tableMetadata.get(tableName));
-  const editSerializer = EditSerializer((table, row, {edit, position}) => {
-    getTable(table).getRow(row).mergeEdit(edit, position);
+  const editSerializer = EditSerializer(db, tableMetadata, (table, rowId, edit, position) => {
+    getTable(table).mergeEdit(rowId, edit, position);
   });
   gossip.onEntry(edit => editSerializer.enqueue(edit));
   return getTable;
