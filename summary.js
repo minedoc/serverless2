@@ -54,12 +54,12 @@ function Schema() {
   })
 }
 
-function UnorderedTable(db, tableRoot) {
-  const rows = new DbMap(db.store(tableRoot, 'contents'));  // Map<RowRoot, Value>
-  const unrooted = new DbMapSet(db.store(tableRoot, 'unrooted'));  // Map<RowRoot, Set<Edit>>
-  const leaf = new DbMapSortedSet(db.store(tableRoot, 'leaf'));  // Map<RowRoot, SortedSet<Edit, EditClock>>
-  const rooted = new DbMap(db.store(tableRoot, 'rooted'));  // Map<EditId, RowRoot>
-  const tombstone = new DbSet(db.store(tableRoot, 'tombstone'));  // Set<Edit> - TODO - not propagated correctly
+function UnorderedTable(db, tableName) {
+  const rows = new DbMap(db.store(tableName, 'contents'));  // Map<RowRoot, Value>
+  const unrooted = new DbMapSet(db.store(tableName, 'unrooted'));  // Map<RowRoot, Set<Edit>>
+  const leaf = new DbMapSortedSet(db.store(tableName, 'leaf'));  // Map<RowRoot, SortedSet<Edit, EditClock>>
+  const rooted = new DbMap(db.store(tableName, 'rooted'));  // Map<EditId, RowRoot>
+  const tombstone = new DbSet(db.store(tableName, 'tombstone'));  // Set<Edit> - TODO - not propagated correctly
 
   async function applyEdit(edit) {
     const type = edit.op.$type;
@@ -128,17 +128,19 @@ function ChangeQueue(db, applyEdit) {
 }
 
 function Tables(gossip, db) {
-  const getTable = TODO;
-  const getTableByRowId = TODO;
-  const changeQueue = ChangeQueue(db, async edit => {
-    const table = await getTableByRowId(edit.op.target);
-    table.applyEdit(edit);
+  const tableMetadata = new Map(db.store('tableMetadata'));
+  const getTable = tableName => loadTable(db, tableMetadata.get(tableName));
+  const editSerializer = EditSerializer((table, row, {edit, position}) => {
+    getTable(table).getRow(row).mergeEdit(edit, position);
   });
-  gossip.onEntry(edit => changeQueue.enqueue(edit));
+  gossip.onEntry(edit => editSerializer.enqueue(edit));
   return getTable;
 }
 
 /*
+think
+  how to remove duplication of storage
+
 out of scope
   moves
     for arrays we sort of care -> move = (copy + delete) means edits are lost
