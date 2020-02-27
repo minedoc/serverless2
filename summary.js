@@ -56,7 +56,7 @@ function Schema() {
 
 function EditSerializer(db, tableMetadata, applyEdit) {
   const unrooted = new DbMapSet(db.store(tableId, 'unrooted'));  // Map<Target, Set<Edit>>
-  const rooted = new DbOrderedTree(db.store(tableId, 'rooted')); // Map<EditId, {rootId, parentId, childs, edit}>
+  const rooted = new DbOrderedForest(db.store(tableId, 'rooted')); // Map<editId, {rootId, parentId, childs, edit}>
   const root = new DbMap(db.store(tableId, 'root')); // Map<rootId, {tableId}>
 
   async function enqueue(edit) {
@@ -70,38 +70,29 @@ function EditSerializer(db, tableMetadata, applyEdit) {
       await root.set(editId, {tableId: edit.op.target});
       await plant(edit.op.target, editId, edit);
     } else if (rooted.has(edit.op.target)) {
-      const rootId = rooted.get(edit.op.target).rootId;
-      const tableId = root.get(rootId).tableId;
+      const rootId = await rooted.get(edit.op.target).rootId;
+      const tableId = await root.get(rootId).tableId;
       await plant(tableId, rootId, edit);
     } else {
       await unrooted.add(edit.op.target, edit);
     }
   }
-  async function plant(tableId, rowId, edit) {
-    const position = editTree(rowId).insert(edit);
-    rooted.set(hash(edit), edit);
-    applyEdit(tableId, rowId, edit, position);
+  async function plant(tableId, rootId, edit) {
+    const editId = hash(edit);
+    const position = rooted.get(rootId).insert(editId, {
+      rootId,
+      parentId: edit.op.target,
+      childs: [],
+      edit
+    });
+    applyEdit(tableId, rootId, edit, position);
     unrooted.deleteValue(edit);
-    unrooted.deleteKey(hash(edit)).forEach(e => plant(tableId, rowId, e));
+    unrooted.deleteKey(editId).forEach(subEdit => plant(tableId, rootId, subEdit));
   }
   return {enqueue};
 }
 
-// for each edit:
-// 0-1 unrooted
-// 1 rooted
-
-function Tables(gossip, db) {
-  const tableMetadata = new Map(db.store('tableMetadata'));
-  const getTable = tableId => loadTable(db, tableMetadata.get(tableId));
-  const editSerializer = EditSerializer(db, tableMetadata, (tableId, rowId, edit, position) => {
-    getTable(tableId).mergeEdit(rowId, edit, position);
-  });
-  gossip.onEntry(edit => editSerializer.enqueue(edit));
-  return getTable;
-}
-
-function DbOrderedTree(comparator) {
+function DbOrderedForest(comparator) {
   // stored in DB as links
   // stored in memory as balanced tree for fast indexing
   const items = DbList();
@@ -129,6 +120,16 @@ function DbList() {
   function index(id) {
     walkUpTree(map.get(id));
   }
+}
+
+function Tables(gossip, db) {
+  const tableMetadata = new Map(db.store('tableMetadata'));
+  const getTable = tableId => loadTable(db, tableMetadata.get(tableId));
+  const editSerializer = EditSerializer(db, tableMetadata, (tableId, rowId, edit, position) => {
+    getTable(tableId).mergeEdit(rowId, edit, position);
+  });
+  gossip.onEntry(edit => editSerializer.enqueue(edit));
+  return getTable;
 }
 
 /*
