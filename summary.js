@@ -118,6 +118,23 @@ function Tables(gossip, db) {
   return getTable;
 }
 
+function DbOrderedTree(comparator) {
+  // stored in DB as links
+  // stored in memory as balanced tree for fast indexing
+  const items = DbList();
+  function insert(nodeId, node, parentId) {
+    const parent = items.get(parentId);
+    const index = smallestBigger(parent.childIds.map(id => items.get(id)), node, comparator);
+    items.insertAt(nodeId, node, index);
+    return index;
+  }
+  return {insert};
+}
+
+function DbOrderedTree() {
+
+}
+
 /*
 think
   how to remove duplication of storage
