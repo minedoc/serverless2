@@ -54,65 +54,48 @@ function Schema() {
   })
 }
 
-function UnorderedTable(db, tableName) {
-  const rows = new DbMap(db.store(tableName, 'contents'));  // Map<RowRoot, Value>
-
-  async function mergeEdit(rowId, edit, position) {
-    const type = edit.op.$type;
-    if (type == TableInsertRow) {
-      await rows.set(rowId, edit.op.value);
-    } else if (type == TableUpdateRow) {
-      // TODO compare position and tombstone and set
-      await rows.set(rowId, TODO);
-    } else if (type == TableDeleteRow) {
-      await rows.set(rowId, tombstone);
-    }
-  }
-
-  return {
-    get: id => filterTombstone(rows.get(id)),
-    iterate: function*() { for (const row of rows) if (filterTombstone) yield row; },
-    insert, update, delete,  // local edit
-    // TODO: how to generate edits
-    mergeEdit,  // remote edit
-  }
-}
-
 function EditSerializer(db, tableMetadata, applyEdit) {
-  const unrooted = new DbMapSet(db.store(tableName, 'unrooted'));  // Map<Target, Set<Edit>>
-  const rooted = new DbMap(db.store(tableName, 'rooted'));  // Map<EditId, RowRoot>
+  const unrooted = new DbMapSet(db.store(tableId, 'unrooted'));  // Map<Target, Set<Edit>>
+  const rooted = new DbOrderedTree(db.store(tableId, 'rooted')); // Map<EditId, {rootId, parentId, childs, edit}>
+  const root = new DbMap(db.store(tableId, 'root')); // Map<rootId, {tableId}>
 
   async function enqueue(edit) {
     const type = edit.op.$type;
     const editId = hash(edit);
-    if (type == TableCreate) {
+    if (seen(edit.op.target)) {
+      return;
+    } else if (type == TableCreate) {
       await tableMetadata.set(editId, edit.op);
     } else if (type == TableInsertRow) {
-      await rowMetadata.set(editId, edit.op.target);
-      await plant(edit.op.target, editId, edit, 0);
-    } else if (seen(edit.op.target)) {
+      await root.set(editId, {tableId: edit.op.target});
+      await plant(edit.op.target, editId, edit);
     } else if (rooted.has(edit.op.target)) {
-      const rowId = rooted.get(edit.op.target);
-      const table = rowMetadata.get(rowId);
-      await plant(table, rowId, edit, TODO);
+      const rootId = rooted.get(edit.op.target).rootId;
+      const tableId = root.get(rootId).tableId;
+      await plant(tableId, rootId, edit);
     } else {
       await unrooted.add(edit.op.target, edit);
     }
   }
-  async function plant(table, rowId, edit, position) {
-    applyEdit(table, rowId, edit, position);
+  async function plant(tableId, rowId, edit) {
+    const position = editTree(rowId).insert(edit);
     rooted.set(hash(edit), edit);
+    applyEdit(tableId, rowId, edit, position);
     unrooted.deleteValue(edit);
-    unrooted.deleteKey(hash(edit)).forEach(e => plant(table, rowId, e, TODO));
+    unrooted.deleteKey(hash(edit)).forEach(e => plant(tableId, rowId, e));
   }
   return {enqueue};
 }
 
+// for each edit:
+// 0-1 unrooted
+// 1 rooted
+
 function Tables(gossip, db) {
   const tableMetadata = new Map(db.store('tableMetadata'));
-  const getTable = tableName => loadTable(db, tableMetadata.get(tableName));
-  const editSerializer = EditSerializer(db, tableMetadata, (table, rowId, edit, position) => {
-    getTable(table).mergeEdit(rowId, edit, position);
+  const getTable = tableId => loadTable(db, tableMetadata.get(tableId));
+  const editSerializer = EditSerializer(db, tableMetadata, (tableId, rowId, edit, position) => {
+    getTable(tableId).mergeEdit(rowId, edit, position);
   });
   gossip.onEntry(edit => editSerializer.enqueue(edit));
   return getTable;
@@ -124,15 +107,28 @@ function DbOrderedTree(comparator) {
   const items = DbList();
   function insert(nodeId, node, parentId) {
     const parent = items.get(parentId);
-    const index = smallestBigger(parent.childIds.map(id => items.get(id)), node, comparator);
+    const childId = smallestBigger(parent.childs, node, comparator);
+    const index = childId ? items.index(childId) : items.index(parent.next);
     items.insertAt(nodeId, node, index);
     return index;
   }
-  return {insert};
+  return {has, get, set, insert};
 }
 
-function DbOrderedTree() {
-
+function DbList() {
+  // list with efficient middle insertion, and counting
+  const map = ?;
+  const tree = ?;
+  function get(id) {
+    return map.get(id);
+  }
+  function insertAt(id, value, index) {
+    map.set(id, value);
+    tree.insert(index);
+  }
+  function index(id) {
+    walkUpTree(map.get(id));
+  }
 }
 
 /*
