@@ -55,9 +55,8 @@ function Schema() {
 }
 
 function EditSerializer(db, tableMetadata, applyEdit) {
-  const unrooted = new DbMapSet(db.store(tableId, 'unrooted'));  // Map<Target, Set<Edit>>
-  const rooted = new DbOrderedForest(db.store(tableId, 'rooted')); // Map<editId, {rootId, parentId, childs, edit}>
-  const root = new DbMap(db.store(tableId, 'root')); // Map<rootId, {tableId}>
+  const unrooted = new DbMapSet(db.store(tableId, 'unrooted'));  // Map<parentId, Set<Edit>>
+  const rooted = new DbOrderedForest(db.store(tableId, 'rooted'), compareClock); // Map<editId, {rootId, parentId, tableId, edit}>
 
   async function enqueue(edit) {
     const type = edit.op.$type;
@@ -67,58 +66,65 @@ function EditSerializer(db, tableMetadata, applyEdit) {
     } else if (type == TableCreate) {
       await tableMetadata.set(editId, edit.op);
     } else if (type == TableInsertRow) {
-      await root.set(editId, {tableId: edit.op.target});
-      await plant(edit.op.target, editId, edit);
+      await plant(null, edit.op.target, editId, edit);
     } else if (rooted.has(edit.op.target)) {
-      const rootId = await rooted.get(edit.op.target).rootId;
-      const tableId = await root.get(rootId).tableId;
-      await plant(tableId, rootId, edit);
+      const parent = await rooted.get(edit.op.target);
+      await plant(edit.op.target, parent.tableId, parent.rootId, edit);
     } else {
       await unrooted.add(edit.op.target, edit);
     }
   }
-  async function plant(tableId, rootId, edit) {
+  async function plant(parentId, tableId, rootId, edit) {
     const editId = hash(edit);
-    const position = rooted.get(rootId).insert(editId, {
-      rootId,
-      parentId: edit.op.target,
-      childs: [],
-      edit
-    });
+    const position = rooted.insert(editId, {
+      rootId, parentId, tableId, edit
+    }, parentId);
     applyEdit(tableId, rootId, edit, position);
-    unrooted.deleteValue(edit);
-    unrooted.deleteKey(editId).forEach(subEdit => plant(tableId, rootId, subEdit));
+    for (const childEdit of unrooted.deleteKey(editId)) {
+      plant(editId, tableId, rootId, childEdit);
+    }
   }
   return {enqueue};
 }
 
 function DbOrderedForest(comparator) {
-  // stored in DB as links
-  // stored in memory as balanced tree for fast indexing
-  const items = DbList();
-  function insert(nodeId, node, parentId) {
-    const parent = items.get(parentId);
-    const childId = smallestBigger(parent.childs, node, comparator);
-    const index = childId ? items.index(childId) : items.index(parent.next);
-    items.insertAt(nodeId, node, index);
-    return index;
+  const items = DbList(); // DbList<editId, {rootId, parentId, childs, edit, clock}>
+  // TODO: must handle multiple lists!
+  function insert(id, value, parentId) {
+    if (parentId == null) {
+      items.insertBefore(id, value, null);
+      return 0;
+    } else {
+      const parent = items.get(parentId);
+      const childId = smallestBigger(parent.childs, value, comparator);
+      const index = items.insertBefore(id, value, childId);
+      return index;
+    }
   }
-  return {has, get, set, insert};
+  return {has: items.has, get: items.get, insert};
 }
 
 function DbList() {
   // list with efficient middle insertion, and counting
-  const map = ?;
-  const tree = ?;
-  function get(id) {
-    return map.get(id);
+  const map = DbMap();
+  const tree = OrderedTree(map.size());
+  var ptr = map.get('$HEAD');
+  while (ptr != '') {
+    const item = map.get(ptr);
+    tree.insert(item.value);
+    ptr = item.next;
   }
-  function insertAt(id, value, index) {
-    map.set(id, value);
-    tree.insert(index);
+  function get(id) {
+    return map.get(id).value;
+  }
+  function insertBefore(id, value, nextId) {
+    const [prevId, prev] = map.getByNext(nextId);
+    map.set(id, {next: nextId, value });
+    map.set(prevId, {next: id, value: prev.value});
+    tree.insertBefore(id, prevId);
   }
   function index(id) {
-    walkUpTree(map.get(id));
+    tree.index(id);
   }
 }
 
