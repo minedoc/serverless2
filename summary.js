@@ -195,20 +195,25 @@ decisions
 idea for composable CRDT
   uniquely map edit type to place in the tree
   constant time (global) lookup of operation and apply to correct item
+  UnorderedMap[create] can specify initial value?
+  OrderedMap[insert] can specify ordering
 
   UnorderedMap(
-    Entity(CreateTable, DeleteTable),
+    CreateTable,
+    DeleteTable,
     UnorderedMap(
-      Entity(TableInsertRow, TableDeleteRow),  // can specify initial value?
-      LinearEdits(
-        BiggestEditWins,
-        OrderByEditDepth,
-        TableUpdateRow)),
-    Entity(CreateArray, DeleteArray),
-    OrderedMap(
-      Entity(ArrayInsertRow, ArrayDeleteRow),  // entity contains ordering semantics
-      LinearEdits(
-        BiggestEditWins,
-        OrderByEditDepth,
-        ArrayUpdateRow)))
+      TableInsertRow,
+      TableDeleteRow,
+      BiggestEditByDepthWins(TableUpdateRow)),
 
+    CreateArray,
+    DeleteArray,
+    OrderedMap(
+      ArrayInsertRow,
+      ArrayDeleteRow,
+      BiggestEditByDepthWins(ArrayUpdateRow))
+  )
+
+  db.get('table').get('row')
+  get('table'): depends on dynamic type of table! which might be unknown
+  db.table: statically defined table, may mismatch with reality
