@@ -29,21 +29,6 @@ function Gossip(discovery) {
 
 function Schema() {
   Id = Binary()  // hash(edit)
-  TableCreate = Struct({
-    // no name!
-    ordered: Bool(),
-  })
-  TableInsertRow = Struct({
-    value: JsonObject(),
-    target: Id(),
-  })
-  TableUpdateRow = Struct({
-    target: Id(),
-    value: JsonObject(),
-  })
-  TableDeleteRow = Struct({
-    target: Id(),
-  })
   Edit = Struct({
     clock: PackedInt(1, {
       global: PackedInt.Field(1, 40),
@@ -54,7 +39,28 @@ function Schema() {
   })
 }
 
-function LastWriterWins(db, tableMetadata, applyEdit) {
+uniquely map edit type to place in the tree
+constant time (global) lookup of operation and apply to correct item
+
+UnorderedMap(
+  Entity(CreateTable, DeleteTable),
+  UnorderedMap(
+    Entity(TableInsertRow, TableDeleteRow),  // can specify initial value?
+    LinearEdits(
+      BiggestEditWins,
+      OrderByEditDepth,
+      TableUpdateRow)),
+  Entity(CreateArray, DeleteArray),
+  OrderedMap(
+    Entity(ArrayInsertRow, ArrayDeleteRow),
+    LinearEdits(
+      BiggestEditWins,
+      OrderByEditDepth,
+      ArrayUpdateRow)))
+
+Mapping { get(key), delete(key) }
+
+function DepthTree(db, applyEdit) {
   const unrooted = new DbMapSet(db.store(tableId, 'lww-unrooted'));  // Map<parentId, Set<Edit>>
   const rooted = new DbMap(db.store(tableId, 'lww-rooted'), compareClock); // Map<editId, {rootId, depth, edit}>
   const isRoot = edit => edit.op.$type == TableInsertRow;
@@ -80,6 +86,7 @@ function LastWriterWins(db, tableMetadata, applyEdit) {
       plant(rootId, childEdit, depth + 1);
     }
   }
+  return {enqueue, onNewRoot};
 }
 
 function DbOrderedForest(comparator) {
