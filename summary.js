@@ -54,37 +54,32 @@ function Schema() {
   })
 }
 
-function EditSerializer(db, tableMetadata, applyEdit) {
-  const unrooted = new DbMapSet(db.store(tableId, 'unrooted'));  // Map<parentId, Set<Edit>>
-  const rooted = new DbOrderedForest(db.store(tableId, 'rooted'), compareClock); // Map<editId, {rootId, parentId, tableId, edit}>
+function LastWriterWins(db, tableMetadata, applyEdit) {
+  const unrooted = new DbMapSet(db.store(tableId, 'lww-unrooted'));  // Map<parentId, Set<Edit>>
+  const rooted = new DbMap(db.store(tableId, 'lww-rooted'), compareClock); // Map<editId, {rootId, depth, edit}>
+  const isRoot = edit => edit.op.$type == TableInsertRow;
 
   async function enqueue(edit) {
-    const type = edit.op.$type;
     const editId = hash(edit);
-    if (seen(edit.op.target)) {
+    if (rooted.has(editId) || unrooted.has(id)) {
       return;
-    } else if (type == TableCreate) {
-      await tableMetadata.set(editId, edit.op);
-    } else if (type == TableInsertRow) {
-      await plant(null, edit.op.target, editId, edit);
-    } else if (rooted.has(edit.op.target)) {
-      const parent = await rooted.get(edit.op.target);
-      await plant(edit.op.target, parent.tableId, parent.rootId, edit);
+    } else if (isRoot(edit)) {
+      await plant(editId, edit, 0);
+    } else if (rooted.has(edit)) {
+      const parent = rooted.get(edit.op.target);
+      await plant(parent.rootId, edit, parent.depth + 1);
     } else {
       await unrooted.add(edit.op.target, edit);
     }
   }
-  async function plant(parentId, tableId, rootId, edit) {
+  async function plant(rootId, edit, depth) {
     const editId = hash(edit);
-    const position = rooted.insert(editId, {
-      rootId, parentId, tableId, edit
-    }, parentId);
-    applyEdit(tableId, rootId, edit, position);
+    rooted.insert(editId, {rootId, edit, depth});
+    applyEdit(rootId, edit, [depth, edit.clock]);
     for (const childEdit of unrooted.deleteKey(editId)) {
-      plant(editId, tableId, rootId, childEdit);
+      plant(rootId, childEdit, depth + 1);
     }
   }
-  return {enqueue};
 }
 
 function DbOrderedForest(comparator) {
