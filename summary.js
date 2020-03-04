@@ -39,43 +39,91 @@ function Schema() {
   })
 }
 
-function UnorderedMap(db, applyEdit) {
-  const unrooted = new DbMapSet(db.store(tableId, 'lww-unrooted'));  // Map<parentId, Set<Edit>>
-  const rooted = new DbMap(db.store(tableId, 'lww-rooted')); // Map<editId, {rootId, depth, edit}>
+function UnorderedMap(db, tableId) {
+  const rows = new DbMap(db.store(tableId, 'rows'));  // Map<rowId, {depth, clock, tombstone, value}>
 
-  async function addEdit(edit) {
-    const editId = hash(edit);
-    if (rooted.has(editId) || unrooted.contains(id)) {
-      return;
-    } else if (edit.$type == TableInsertRow) {
-      await plant(editId, edit, 0);
-    } else if (rooted.has(edit.op.target)) {
-      const parent = await rooted.get(edit.op.target);
-      await plant(parent.rootId, edit, parent.depth + 1);
+  async function applyEdit(editId, edit, depth, {tableId, rowId}) {
+    const clock = edit.clock;
+    if (edit.op.$type == TableInsertRow) {
+      rows.set(editId, {depth, clock, tombstone: false, value: edit.op.value});
+      return {tableId, rowId: editId};
+    } else if (edit.op.$type == TableUpdateRow) {
+      const oldRow = rows.get(editId);
+      if (!oldRow.tombstone && oldRow.clock < clock) {
+        rows.set(editId, {depth, clock, tombstone: false, value: edit.op.value});
+      }
+    } else if (edit.op.$type == TableDeleteRow) {
+      rows.set(editId, {depth, clock, tombstone: true, value: null});
+    }
+    return {tableId, rowId};
+  }
+  async function getRow(rowId) {
+    return rows.get(rowId).value;
+  }
+  function* getAllRows() {
+    for (row of rows.getAll()) {
+      if (!row.tombstone) {
+        yield row.value;
+      }
+    }
+  }
+  return {applyEdit, getRow, getAllRows};
+}
+
+function Tables(db) {
+  const tableInfo = new DbMap(db.store('tableInfo'));  // Map<tableId, Edit>
+  const tableCache = new Map();
+
+  async function applyEdit(editId, edit, depth, {tableId, rowId}) {
+    if (edit.op.$type == CreateTable) {
+      await tableInfo.set(editId, edit);
+      return {tableId: editId};
+    } else if (edit.op.$type == DeleteTable) {
+      await tableInfo.delete(edit.op.target);
+      tableCache.delete(edit.op.target);
+      return {tableId: edit.op.target};
     } else {
-      await unrooted.add(edit.op.target, edit);
+      return getTable(tableId).applyEdit(editId, edit, depth, {tableId, rowId});
     }
   }
-  async function plant(rootId, edit, depth) {
-    const editId = hash(edit);
-    rooted.insert(editId, {rootId, edit, depth});
-    applyEdit(rootId, edit, [depth, edit.clock]);
-    for (const childEdit of unrooted.delete(editId)) {
-      plant(rootId, childEdit, depth + 1);
+  function getTable(tableId) {
+    if (!tableCache.contains(tableId)) {
+      const info = tableInfo.get(tableId);
+      if (info.op.$type == CreateTable) {
+        tableCache.set(tableId, UnorderedMap(db, tableId));
+      }
     }
+    return tableCache.get(tableId);
   }
-  return {addEdit};
+  return {applyEdit, getTable};
 }
 
-function Tables(gossip, db) {
-  const tableMetadata = new Map(db.store('tableMetadata'));
-  const getTable = tableId => loadTable(db, tableMetadata.get(tableId));
-  const editSerializer = EditSerializer(db, tableMetadata, (tableId, rowId, edit, position) => {
-    getTable(tableId).mergeEdit(rowId, edit, position);
-  });
-  gossip.onEntry(edit => editSerializer.enqueue(edit));
-  return getTable;
+function Database(db) {
+  const unrooted = new DbMapSet(db.store(tableId, 'unrooted'));  // Map<parentId, Set<edit>>
+  const rooted = new DbMap(db.store(tableId, 'rooted')); // Map<editId, {edit, depth, ids}>
+  const tables = Tables(db);
+
+  async function applyEdit(edit) {
+    const editId = hash(edit);
+    if (rooted.has(editId) || unrooted.contains(editId)) {
+      return;
+    } else if (edit.op.target == null || rooted.has(edit.op.target)) {
+      await plant(editId, edit, rooted.get(edit.op.target));
+    } else {
+      await unrooted.add(edit.op.target, editId, edit);
+    }
+  }
+  async function plant(editId, edit, {depth, ids}) {
+    const ids = await tables.applyEdit(editId, edit, depth, ids);
+    await rooted.insert(editId, {edit, depth, ids});
+    for (const childEdit of unrooted.delete(editId)) {
+      plant(rootId, childEdit, depth + 1, ids);
+    }
+  }
+  return {applyEdit};
 }
+
+Database(db)
 
 /*
 think
