@@ -39,18 +39,24 @@ function Schema() {
   })
 }
 
-function DepthTree(db, applyEdit) {
+function BiggestEditByDepthWins(db, applyEdit) {
   const unrooted = new DbMapSet(db.store(tableId, 'lww-unrooted'));  // Map<parentId, Set<Edit>>
   const rooted = new DbMap(db.store(tableId, 'lww-rooted'), compareClock); // Map<editId, {rootId, depth, edit}>
-  const isRoot = edit => edit.op.$type == TableInsertRow;
 
-  async function enqueue(edit) {
+  async function addRoot(edit) {
     const editId = hash(edit);
-    if (rooted.has(editId) || unrooted.has(id)) {
-      return;
-    } else if (isRoot(edit)) {
+    if (!rooted.has(editId)) {
       await plant(editId, edit, 0);
-    } else if (rooted.has(edit)) {
+    }
+  }
+  async function deleteRoot(edit) {
+    // TODO
+  }
+  async function addEdit(edit) {
+    const editId = hash(edit);
+    if (rooted.has(editId) || unrooted.contains(id)) {
+      return;
+    } else if (rooted.has(edit.op.target)) {
       const parent = rooted.get(edit.op.target);
       await plant(parent.rootId, edit, parent.depth + 1);
     } else {
@@ -61,11 +67,11 @@ function DepthTree(db, applyEdit) {
     const editId = hash(edit);
     rooted.insert(editId, {rootId, edit, depth});
     applyEdit(rootId, edit, [depth, edit.clock]);
-    for (const childEdit of unrooted.deleteKey(editId)) {
+    for (const childEdit of unrooted.delete(editId)) {
       plant(rootId, childEdit, depth + 1);
     }
   }
-  return {enqueue, onNewRoot};
+  return {addRoot, deleteRoot, addEdit};
 }
 
 function DbOrderedForest(comparator) {
@@ -147,6 +153,8 @@ out of scope
       provide a conflict resolver UI for conflicts
       for LWW not for mis-ordering
     if only two computers there's no 'head'
+  local clocks
+    reduce clock size
 
 data structures
   Map(key => val)
@@ -217,3 +225,4 @@ idea for composable CRDT
   db.get('table').get('row')
   get('table'): depends on dynamic type of table! which might be unknown
   db.table: statically defined table, may mismatch with reality
+  CreateTable -> TableInsertRow -> ([TableUpdateRow]*, TableDeleteRow)
