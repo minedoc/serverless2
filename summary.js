@@ -49,7 +49,7 @@ function UnorderedMap(db, tableId) {
       return {tableId, rowId: editId};
     } else if (edit.op.$type == TableUpdateRow) {
       const oldRow = rows.get(editId);
-      if (!oldRow.tombstone && oldRow.clock < clock) {
+      if (!oldRow.tombstone && oldRow.depth <= depth && oldRow.clock < clock) {
         rows.set(editId, {depth, clock, tombstone: false, value: edit.op.value});
       }
     } else if (edit.op.$type == TableDeleteRow) {
