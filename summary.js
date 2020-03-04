@@ -39,25 +39,18 @@ function Schema() {
   })
 }
 
-function BiggestEditByDepthWins(db, applyEdit) {
+function UnorderedMap(db, applyEdit) {
   const unrooted = new DbMapSet(db.store(tableId, 'lww-unrooted'));  // Map<parentId, Set<Edit>>
-  const rooted = new DbMap(db.store(tableId, 'lww-rooted'), compareClock); // Map<editId, {rootId, depth, edit}>
+  const rooted = new DbMap(db.store(tableId, 'lww-rooted')); // Map<editId, {rootId, depth, edit}>
 
-  async function addRoot(edit) {
-    const editId = hash(edit);
-    if (!rooted.has(editId)) {
-      await plant(editId, edit, 0);
-    }
-  }
-  async function deleteRoot(edit) {
-    // TODO
-  }
   async function addEdit(edit) {
     const editId = hash(edit);
     if (rooted.has(editId) || unrooted.contains(id)) {
       return;
+    } else if (edit.$type == TableInsertRow) {
+      await plant(editId, edit, 0);
     } else if (rooted.has(edit.op.target)) {
-      const parent = rooted.get(edit.op.target);
+      const parent = await rooted.get(edit.op.target);
       await plant(parent.rootId, edit, parent.depth + 1);
     } else {
       await unrooted.add(edit.op.target, edit);
@@ -71,48 +64,7 @@ function BiggestEditByDepthWins(db, applyEdit) {
       plant(rootId, childEdit, depth + 1);
     }
   }
-  return {addRoot, deleteRoot, addEdit};
-}
-
-function DbOrderedForest(comparator) {
-  const items = DbList(); // DbList<editId, {rootId, parentId, childs, edit, clock}>
-  // TODO: must handle multiple lists!
-  function insert(id, value, parentId) {
-    if (parentId == null) {
-      items.insertBefore(id, value, null);
-      return 0;
-    } else {
-      const parent = items.get(parentId);
-      const childId = smallestBigger(parent.childs, value, comparator);
-      const index = items.insertBefore(id, value, childId);
-      return index;
-    }
-  }
-  return {has: items.has, get: items.get, insert};
-}
-
-function DbList() {
-  // list with efficient middle insertion, and counting
-  const map = DbMap();
-  const tree = OrderedTree(map.size());
-  var ptr = map.get('$HEAD');
-  while (ptr != '') {
-    const item = map.get(ptr);
-    tree.insert(item.value);
-    ptr = item.next;
-  }
-  function get(id) {
-    return map.get(id).value;
-  }
-  function insertBefore(id, value, nextId) {
-    const [prevId, prev] = map.getByNext(nextId);
-    map.set(id, {next: nextId, value });
-    map.set(prevId, {next: id, value: prev.value});
-    tree.insertBefore(id, prevId);
-  }
-  function index(id) {
-    tree.index(id);
-  }
+  return {addEdit};
 }
 
 function Tables(gossip, db) {
@@ -199,30 +151,12 @@ decisions
     independent (discarded)
       $ordering string
       $ordering object (hash lookup into tree walk)
-
-idea for composable CRDT
-  uniquely map edit type to place in the tree
-  constant time (global) lookup of operation and apply to correct item
-  UnorderedMap[create] can specify initial value?
-  OrderedMap[insert] can specify ordering
-
-  UnorderedMap(
-    CreateTable,
-    DeleteTable,
+  discarded: composable CRDT
+    UnorderedMap[create] can specify initial value?
+    OrderedMap[insert] can specify ordering
+    how map edit tree <-> result tree
+    db.get('table-hash').getAll()  -> how to be efficient
+    discarded - don't need perfect modularity
     UnorderedMap(
-      TableInsertRow,
-      TableDeleteRow,
-      BiggestEditByDepthWins(TableUpdateRow)),
-
-    CreateArray,
-    DeleteArray,
-    OrderedMap(
-      ArrayInsertRow,
-      ArrayDeleteRow,
-      BiggestEditByDepthWins(ArrayUpdateRow))
-  )
-
-  db.get('table').get('row')
-  get('table'): depends on dynamic type of table! which might be unknown
-  db.table: statically defined table, may mismatch with reality
-  CreateTable -> TableInsertRow -> ([TableUpdateRow]*, TableDeleteRow)
+      CreateTable, DeleteTable, UnorderedMap(TableInsertRow, TableDeleteRow, EditsByDepth(TableUpdateRow)),
+      CreateArray, DeleteArray, OrderedMap(ArrayInsertRow, ArrayDeleteRow, EditsByDepth(ArrayUpdateRow)))
