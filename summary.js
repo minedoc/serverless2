@@ -88,13 +88,17 @@ function Tables(db) {
   }
   function getTable(tableId) {
     if (!tableCache.contains(tableId)) {
-      const info = tableInfo.get(tableId);
-      if (info.op.$type == CreateTable) {
-        tableCache.set(tableId, UnorderedMap(db, tableId));
-      }
+      tableCache.set(tableId, makeTable(tableId));
     }
     return tableCache.get(tableId);
   }
+  function makeTable(tableId) {
+    const info = tableInfo.get(tableId);
+    if (info.op.$type == CreateTable) {
+      return UnorderedMap(db, tableId);
+    }
+  }
+
   return {applyEdit, getTable};
 }
 
@@ -117,7 +121,7 @@ function Database(db) {
     const ids = await tables.applyEdit(editId, edit, depth, ids);
     await rooted.insert(editId, {edit, depth, ids});
     for (const childEdit of unrooted.delete(editId)) {
-      plant(rootId, childEdit, depth + 1, ids);
+      plant(hash(childEdit), childEdit, {depth: depth + 1, ids});
     }
   }
   return {applyEdit};
