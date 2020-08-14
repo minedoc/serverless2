@@ -189,6 +189,16 @@ encryption - do later!
   w -> integrityKeys: sign content - Gossip
   r -> readKey: decrypt contents - Crdt
 
+performance -  what's slow
+  indexeddb ~50k reads
+    batch many our rows into one indexeddb row
+    memory cache - as Map<key, val> note this is hard due to sharing
+  encryption dunno
+    don't do it
+    use symmetric encryption
+  service / shared worker messaging ~10k pairs, 100k flat
+  promises
+
 decisions
   what happens if duplicate id seen
     content-signature id
