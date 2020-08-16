@@ -1,0 +1,177 @@
+<!doctype html>
+<html>
+<body>
+<script type="module">
+import { openDB, deleteDB, unwrap } from 'https://unpkg.com/idb?module';
+
+async function stuff() {
+  const db = await openDB('test', 1, {
+    upgrade(db, oldVersion, newVersion, transaction) {
+      db.createObjectStore('store', {keyPath: 'id', autoIncrement: false});
+    },
+    blocked() {
+    },
+    blocking() {
+    },
+    terminated() {
+    },
+  });
+  const uw = unwrap(db);
+
+  await db.put('store', {id: 'hi', value: 'what'});
+
+  // 14 seconds
+  if (false) {
+    var start = Date.now();
+    const store = db.transaction('store').objectStore('store');
+    for (var i=0; i<100000; i++) {
+      await store.get('hi');
+    }
+    console.log('time', Date.now() - start);
+  }
+
+  // 29 seconds
+  if (false) {
+    var start = Date.now();
+    for (var i=0; i<100000; i++) {
+      await db.get('store', 'hi');
+    }
+    console.log('time', Date.now() - start);
+  }
+
+  // 12 seconds
+  if (false) {
+    var start = Date.now();
+    const store = db.transaction('store').objectStore('store');
+    const prs = [];
+    for (var i=0; i<100000; i++) {
+      prs.push(store.get('hi'));
+    }
+    await Promise.all(prs);
+    console.log('time', Date.now() - start);
+  }
+
+  // 2 milliseconds
+  if (false) {
+    var start = Date.now();
+    const map = new Map();
+    map.set('hi', {id: 'hi', value: 'what'});
+    for (var i=0; i<100000; i++) {
+      map.get('hi');
+    }
+    console.log('time', Date.now() - start);
+  }
+
+  // 7 seconds
+  if (false) {
+    var start = Date.now();
+    for (var i=0; i<100000; i++) {
+      const store = db.transaction('store');
+    }
+    console.log('time', Date.now() - start);
+  }
+
+  // do not use idb - 2x slower
+  // 1.6 seconds
+  if (false) {
+    var start = Date.now();
+    for (var i=0; i<100000; i++) {
+      const store = uw.transaction('store', 'readonly');
+    }
+    console.log('time', Date.now() - start);
+  }
+
+  // pretty fast to read this data
+  // recommend batch size of ~10
+  // 3.1 seconds - 10x10000 reads
+  // 2.3 seconds - 100x1000 reads
+  // 2.2 / 4.6 seconds - 1000x100 reads
+  // 2.5 / 5.0 seconds - 10000x10 reads
+  // 4.6 / 9.1 seconds - 100000x1 reads
+  if (false) {
+    var start = Date.now();
+    var done = 0;
+    for (var j=0; j<1000; j++) {
+      const store = uw.transaction('store', 'readonly').objectStore('store');
+      for (var i=0; i<100; i++) {
+        store.get('hi').onsuccess = x => done++;
+      }
+    }
+    console.log('time', Date.now() - start);
+    var wait = setInterval(() => {
+      console.log(done);
+      if (done == 100000) {
+        console.log('wait', Date.now() - start);
+        clearInterval(wait);
+      }
+    }, 10);
+  }
+
+  function messager(controller) {
+    const channel = new MessageChannel();
+    const promises = new Map();
+    var id = 0;
+    controller.postMessage('port', [channel.port2]);
+    channel.port1.onmessage = event => {
+      promises.get(event.data[0])(event.data[1]);
+    };
+    return async function send(data) {
+      const msgId = ++id;
+      channel.port1.postMessage([id, data]);
+      return new Promise((resolve, reject) => {
+        promises.set(msgId, resolve);
+      });
+    }
+  }
+  window.addEventListener('load', async () => {
+    await navigator.serviceWorker.register('/sw.js');
+    console.log('sw ready');
+    // 600 milliseconds
+    if (true) {
+      var start = Date.now();
+      for (var i=0; i<100000; i++) {
+        navigator.serviceWorker.controller.postMessage('perf');
+      }
+      console.log('time', Date.now() - start);
+    }
+    // 750 ms
+    if (false) {
+      const channel = new MessageChannel();
+      navigator.serviceWorker.controller.postMessage('port', [channel.port2]);
+      var start = Date.now();
+      for (var i=0; i<100000; i++) {
+        channel.port1.postMessage([0, 1]);
+      }
+      console.log('time', Date.now() - start);
+    }
+    // await -> 8 seconds
+    // nowait -> 1.3 seconds
+    // all -> 16 seconds
+    if (false) {
+      const msg = messager(navigator.serviceWorker.controller);
+      var start = Date.now();
+      var all = [];
+      for (var i=0; i<100000; i++) {
+        await msg(5);
+      }
+      console.log('time', Date.now() - start);
+    }
+
+    // 600 milliseconds
+    if (false) {
+      const worker = new SharedWorker('shared.js');
+      worker.port.onmessage = event => {
+        console.log(event);
+      };
+      var start = Date.now();
+      for (var i=0; i<100000; i++) {
+        worker.port.postMessage('hi');
+      }
+      console.log('time', Date.now() - start);
+    }
+  });
+}
+
+stuff();
+</script>
+</body>
