@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+minimal sync
+  sync layer for existing database
+    indexeddb
+  no query
+  no live query
+  no ui toolkit
+  lww-per-field update
+  arrays?
+
+data model
+  database ~ store ~ row
+  id = sha256(update)
+  update
+    {CreateTable, clock, name}
+      indexeddb cannot change databases midway
+      reopen database with higher version number
+    {Insert, clock, tableId, value}
+    {Update, clock, rowId, value}
+      last writer wins, updates do not chain
+    {Delete, clock, rowId}
+
+lww-per-field
+  field foo: {x: {y: 5}} - {x: 5} - {x: {a: 6}}
+    x = t1
+    x.y = t1
+    x = t2
+    x = t3
+    x.y = t3
+
+<script>
+const encoder = new TextEncoder();
+const text = 'An obscure body in the S-K System, your majesty. The inhabitants refer to it as the planet Earth.';
+const data = encoder.encode(text);
+
+async function foo() {
+  for (var i=0; i<100000; i++) {
+    const hash = await crypto.subtle.digest('SHA-256', data);
+  }
+}
+
+async function bar() {
+  const start = Date.now();
+  await foo();
+  console.log('time', Date.now() - start);
+}
+
+bar()
+</script>
