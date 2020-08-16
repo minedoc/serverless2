@@ -135,7 +135,9 @@ think
 
 out of scope
   moves
-    for arrays we sort of care -> move = (copy + delete) means edits are lost
+    for arrays we sort of care -> move = (copy + delete)
+      edits are lost
+      offline client doing the same thing will create copy
     maybe a moved-tombstone that proxies edits to new place
   transaction
     can't happen since history is not linear
@@ -162,11 +164,13 @@ out of scope
 
 data structures
   Map(key => val)
-    key is created for you, unlikely to collide
+    key is auto-incremented (clock)
   Object(key => val)
-    you set key, lww
+    you set key, last (clock) writer wins
   List(key => val)
-    like map but with ordering
+    like map but with ordering - out of scope?
+
+do not expose object oriented API, just let client access the indexedDB
 
 do we get to choose refs?
   table name, row key
@@ -193,10 +197,11 @@ performance -  what's slow
   indexeddb ~50k reads
     batch many our rows into one indexeddb row
     memory cache - as Map<key, val> note this is hard due to sharing
-  encryption dunno
+    maybe not necessary to sync UI with db, just a backend
+    however our CrdtList, CrdtObj needs it somehow?
+  encryption
     don't do it
     use symmetric encryption
-  service / shared worker messaging ~10k pairs, 100k flat
   promises
 
 decisions
