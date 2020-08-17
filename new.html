@@ -1,13 +1,17 @@
 <!doctype html>
-<html>
+<pre>
 minimal sync
-  sync layer for existing database
-    indexeddb
   no query
   no live query
   no ui toolkit
+  no arrays
   lww-per-field update
-  arrays?
+  how is it exposed
+    unlike indexeddb the ID is not user controlled
+    direct use indexeddb vs proxy overwriting {put/set/delete}
+    indexes - allow or let user define
+    store.subscribe()
+    how to migrate tables
 
 data model
   database ~ store ~ row
@@ -22,20 +26,16 @@ data model
     {Delete, clock, rowId}
 
 lww-per-field
-  field foo: {x: {y: 5}} - {x: 5} - {x: {a: 6}}
-    x = t1
-    x.y = t1
-    x = t2
-    x = t3
-    x.y = t3
-
+  Age = {age: clock, Value or Map[field, Age]}
+    arrays are values (overwritten)
+</pre>
 <script>
 const encoder = new TextEncoder();
 const text = 'An obscure body in the S-K System, your majesty. The inhabitants refer to it as the planet Earth.';
 const data = encoder.encode(text);
 
 async function foo() {
-  for (var i=0; i<100000; i++) {
+  for (var i=0; i<10000; i++) {
     const hash = await crypto.subtle.digest('SHA-256', data);
   }
 }
@@ -46,5 +46,5 @@ async function bar() {
   console.log('time', Date.now() - start);
 }
 
-bar()
+bar();
 </script>
