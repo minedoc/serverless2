@@ -1,7 +1,7 @@
 import {Rpc} from './types.js';
 import {mapRemove} from './util.js';
 
-function Stub(pc, channel, methods) {
+function Stub({pc, channel}, methods) {
   const inflight = new Map();
   const handlers = new Map();
 
@@ -26,10 +26,7 @@ function Stub(pc, channel, methods) {
     }
   }
 
-  const stub = Object.create({
-    $pc: pc,
-    $channel: channel,
-  });
+  const stub = {};
   for (let [method, [request, response, execute]] of Object.entries(methods.methods)) {
     stub[method] = req => new Promise((resolve, reject) => {
       const id = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);

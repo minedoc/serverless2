@@ -63,4 +63,8 @@ function sortBy(array, key) {
   return array.slice(0).sort((a, b) => cmp(key(a), key(b)));
 }
 
-export {hexToByteString, base64, randomChars, mapRemove, mapSet, sleep, Event, sortBy};
+function BloomFilter() {
+  return {has: () => true, add: () => 0, toBinary: () => 'binary'};
+}
+
+export {hexToByteString, base64, randomChars, mapRemove, mapSet, sleep, Event, sortBy, BloomFilter};
