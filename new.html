@@ -2,49 +2,150 @@
 <pre>
 minimal sync
   no query
-  no live query
+  no realtime query
   no ui toolkit
-  no arrays
-  lww-per-field update
-  how is it exposed
-    unlike indexeddb the ID is not user controlled
-    direct use indexeddb vs proxy overwriting {put/set/delete}
-    indexes - allow or let user define
-    store.subscribe()
-    how to migrate tables
+  no smart arrays
+  no schema
+  no await
+    everything done in-memory
+    doesn't matter if indexeddb lags behind - it is used at load time only
+    leader election
+  manual and code duplication
+    local and remote changes are separate
+  no dag
+    don't need to save un-processable changes
+    simple dependency model with no depth
+    all needed data is in the change (eg table is duplicate)
+    update depends on insert but can be resolved without it
 
-data model
-  database ~ store ~ row
-  id = sha256(update)
-  update
-    {CreateTable, clock, name}
-      indexeddb cannot change databases midway
-      reopen database with higher version number
-    {Insert, clock, tableId, value}
-    {Update, clock, rowId, value}
-      last writer wins, updates do not chain
-    {Delete, clock, rowId}
+how is old change handled
+  merkle tree sounds difficult
+  send everything
+  names
+    set reconciliation
+    anti-entropy
+  just send all the change id (first 64 bits)
+  collision probability ~ keys^2/(2 * keyspace)
+    bits = log2(keys^2 / probability)
 
-lww-per-field
-  Age = {age: clock, Value or Map[field, Age]}
-    arrays are values (overwritten)
+dag based
+  dag is linearized into a consistent timeline
+  changes may apply to any point in history
+    what about non-commutable changes - O(n) if change is non-commutable
+
 </pre>
 <script>
-const encoder = new TextEncoder();
-const text = 'An obscure body in the S-K System, your majesty. The inhabitants refer to it as the planet Earth.';
-const data = encoder.encode(text);
 
-async function foo() {
-  for (var i=0; i<10000; i++) {
-    const hash = await crypto.subtle.digest('SHA-256', data);
+function Database(settings) {
+  function insert(table, value) {
+    const clock = getLatestTime();
+    const change = Change.Insert.encode({clock, table, value});
+    const rowId = hash(change);
+    tables.set(table, rowId, value, clock);
+    share.send(change);
+    return rowId;
   }
+  function update(table, rowId, value) {
+    const clock = getLatestTime();
+    const change = Change.Update.encode({clock, table, rowId, value});
+    tables.set(table, rowId, value, clock);
+    share.send(change);
+  }
+  function delete(table, rowId) {
+    const clock = getLatestTime();
+    const change = Change.Delete.encode({clock, table, rowId});
+    tables.delete(table, rowId, clock);
+    share.send(change);
+  }
+
+  const idb = await OpenIndexedDb(settings.name);
+  const tables = await Tables(idb);
+  const share = await Share(idb, Discovery(settings.tracker));
+  share.subscribe(change => {
+    if (change.type == Change.Insert) {
+      tables.set(change.table, hash(change), change.value);
+    } else if (change.type == Change.Update) {
+      if (clocks.get(change.rowId) < change.clock) {
+        tables.set(change.table, change.rowId, change.value, change.clock);
+      }
+    } else if (change.type == Change.Delete) {
+      tables.delete(change.table, change.rowId, change.clock);
+    }
+  });
+
+  return {get: tables.get, getAll: tables.getAll, insert, update, delete, subscribe: share.subscribe};
 }
 
-async function bar() {
-  const start = Date.now();
-  await foo();
-  console.log('time', Date.now() - start);
+function Share(idb, discovery) {
+  const peers = new Map();
+  const changeDb = await dbMap(idb, 'changes');
+  discovery.onPeer(peer => {
+    peers.set(peer.id, peer);
+    peer.onChange(change => {
+      if (changeDb.get(hash(change))) {
+        return;
+      } else {
+        changeDb.put(change);
+        subscribers.send(change);
+        peers.forEach(peer => peer.sendChange(change));
+      }
+    });
+    peer.onSync(syncReq => {
+      return changeDb.byClockFrom(syncReq.clock);
+    });
+  }
+  return {send, subscribe}
 }
 
-bar();
+function OpenIndexedDb(name) {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(name, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      switch (event.oldVersion) {
+        case 0:
+          const tables = db.createObjectStore('tables', {keyPath: 'id', autoIncrement: false});
+          const changes = db.createObjectStore('changes', {keypath: 'id', autoIncrement: false});
+          changes.createIndex('clock', 'clock');
+      }
+    };
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => resolve(req.result);
+  });
+}
+
+// todo: batch writes
+function Tables(idb) {
+  const tables = new DefaultMap(() => new Map());
+
+  const get = (table, rowId) => getAll(table).get(rowId);
+  function getAll(table) {
+    if (!tables.contains(table)) {
+      tables.set(table, new Map());
+    }
+    return tables.get(table);
+  }
+  function set(table, rowId, value) {
+    getAll(row.table).put(rowId, value);
+    idb.transaction('tables', 'readwrite').objectStore('tables').put({id: rowId, table, clock, value});
+  }
+  function delete(table, rowId, clock) {
+    getAll(row.table).delete(rowId, clock);
+    idb.transaction('tables', 'readwrite').objectStore('tables').put({id: rowId, table, clock});
+  }
+
+  return new Promise((resolve, reject) => {
+    const req = idb.transaction('tables', 'readonly').objectStore('tables').getAll();
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      for(const row: req.result) {
+        if (row.value) {
+          getAll(row.table).put(row.id, row.value);
+        }
+        resolve({get, getAll, set, delete});
+      }
+    }
+  });
+}
+
 </script>
