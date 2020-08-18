@@ -73,10 +73,10 @@ async function stuff() {
 
   // do not use idb - 2x slower
   // 1.6 seconds
-  if (false) {
+  if (true) {
     var start = Date.now();
     for (var i=0; i<100000; i++) {
-      const store = uw.transaction('store', 'readonly');
+      const store = uw.transaction('store', 'readonly', {durability: 'relaxed'});
     }
     console.log('time', Date.now() - start);
   }
@@ -104,7 +104,7 @@ async function stuff() {
         console.log('wait', Date.now() - start);
         clearInterval(wait);
       }
-    }, 10);
+    }, 0);
   }
 
   function messager(controller) {
@@ -127,7 +127,7 @@ async function stuff() {
     await navigator.serviceWorker.register('/sw.js');
     console.log('sw ready');
     // 600 milliseconds
-    if (true) {
+    if (false) {
       var start = Date.now();
       for (var i=0; i<100000; i++) {
         navigator.serviceWorker.controller.postMessage('perf');
