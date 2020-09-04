@@ -1,4 +1,4 @@
-import {message, repeated, string, binary, int} from './binary.js';
+import {message, repeated, string, json, binary, int, oneof} from './binary.js';
 
 const Rpc = message('Rpc', {
   rpcType: int(1),
@@ -23,24 +23,24 @@ const Insert = message('Insert', {
 const Update = message('Update', {
   clock: Clock(1),
   table: string(2),
-  rowId: binary(3),
+  rowId: string(3),
   value: json(4),
 });
 
 const Delete = message('Delete', {
   clock: Clock(1),
   table: string(2),
-  rowId: binary(3),
+  rowId: string(3),
 });
 
-const Change = anyof([Insert, Update, Delete]);
+const Change = oneof('Change', [Insert, Update, Delete]);
 
 const GetUnseenChangesReq = message('GetUnseenChangesReq', {
   bloomFilter: binary(1),
 });
 
 const GetUnseenChangesResp = message('GetUnseenChangesResp', {
-  changes: repeated(Change, 1),
+  changes: repeated(binary, 1),  // binary Change to allow hashing
   cursor: int(2),
 });
 
@@ -49,8 +49,8 @@ const GetRecentChangesReq = message('GetRecentChangesReq', {
 });
 
 const GetRecentChangesResp = message('GetRecentChangesResp', {
-  changes: repeated(Change, 1),
+  changes: repeated(binary, 1),  // binary Change to allow hashing
   cursor: int(2),
 });
 
-export {Rpc, GetUnseenChangesReq, GetUnseenChangesResp, GetRecentChangesReq, GetRecentChangesResp};
+export {Rpc, Insert, Update, Delete, Change, GetUnseenChangesReq, GetUnseenChangesResp, GetRecentChangesReq, GetRecentChangesResp};

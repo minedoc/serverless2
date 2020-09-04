@@ -12,8 +12,9 @@ function Discovery(url, infoHash) {
   const myPeerId = randomPeerId();
   const pendingPeers = new Map();
   const peers = new Map();
-  const onPeerWatchers = [];
+  const onPeerWatchers = [], onPeerDisconnectWatchers = [];
   const onPeer = watcher => onPeerWatchers.push(watcher);
+  const onPeerDisconnect = watcher => onPeerDisconnectWatchers.push(watcher);
   async function makeOffer() {
     const pc = new RTCPeerConnection({
       iceServers: [{urls:["stun:stun.l.google.com:19302"]}],
@@ -48,6 +49,7 @@ function Discovery(url, infoHash) {
       peers.set(peerId, peer);
       peer.pc.onconnectionstatechange = event => {
         if (peer.pc.connectionState != 'connected') {
+          onPeerDisconnectWatchers.forEach(f => f(peer));
           peers.delete(peerId);
         }
       };
@@ -107,7 +109,7 @@ function Discovery(url, infoHash) {
   onPeer(peer => {
     console.log('added a peer: ', peer);
   });
-  return {onPeer};
+  return {onPeer, onPeerDisconnect};
 }
 
 export {Discovery};

@@ -1,6 +1,8 @@
 import {Discovery} from './discovery.js';
-import {Insert, Update, Delete, GetRecentChangesReq, GetRecentChangesResp, GetUnseenChangesReq, GetUnseenChangesResp} from './types.js';
-import {BloomFilter} from './util.js';
+import {Type} from './binary.js';
+import {BloomFilter} from './bloomfilter.js';
+import {Stub} from './stub.js';
+import {Insert, Update, Delete, Change, GetRecentChangesReq, GetRecentChangesResp, GetUnseenChangesReq, GetUnseenChangesResp} from './types.js';
 
 async function init() {
   window.db = await Database({
@@ -10,24 +12,35 @@ async function init() {
   });
 }
 
+// TODO P4: Change.write(Type(Foo, value)) -> Change.writeFoo(value)
+
 async function Database(settings) {
-  function insert(table, value) {
-    const clock = getLatestTime();
-    const change = Insert.write({clock, table, value});
-    const rowId = hash(change);
-    tables.set(table, rowId, value, clock);
+  const clock = {
+    global: 0,
+    site: Math.floor(Math.random() * 10000),
+    local: 0,
+  };
+  function latestTime() {
+    clock.local++;
+    return clock;
+  }
+  async function insert(table, value) {
+    const clock = latestTime();
+    const change = Change.write(Type(Insert, {clock, table, value}));
+    const rowId = await hash(change);
+    tables.set(table, rowId, clock, value);
     share.send(change);
     return rowId;
   }
   function update(table, rowId, value) {
-    const clock = getLatestTime();
-    const change = Update.write({clock, table, rowId, value});
-    tables.set(table, rowId, value, clock);
+    const clock = latestTime();
+    const change = Change.write(Type(Update, {clock, table, rowId, value}));
+    tables.set(table, rowId, clock, value);
     share.send(change);
   }
   function remove(table, rowId) {
-    const clock = getLatestTime();
-    const change = Delete.write({clock, table, rowId});
+    const clock = latestTime();
+    const change = Change.write(Type(Delete, {clock, table, rowId}));
     tables.remove(table, rowId, clock);
     share.send(change);
   }
@@ -39,7 +52,7 @@ async function Database(settings) {
       switch (event.oldVersion) {
         case 0:
           const tables = db.createObjectStore('tables', {keyPath: 'id', autoIncrement: false});
-          const changes = db.createObjectStore('changes', {keypath: 'hash', autoIncrement: false});
+          const changes = db.createObjectStore('changes', {keyPath: 'hash', autoIncrement: false});
       }
     };
     req.onerror = () => reject(req.error);
@@ -47,19 +60,30 @@ async function Database(settings) {
   });
   const tables = await Tables(idb);
   const share = await Share(idb, Discovery(settings.tracker, settings.feed));
-  share.subscribe(change => {
+  share.subscribe(async (changeHash, change) => {
+    if (change.clock.global >= clock.global) {
+      clock.global = change.clock.global + 1;
+      clock.local = 0;
+    }
+    if (clockLessThan(change.clock, tables.getClock(change.rowId))) {
+      return;
+    }
     if (change.$type == Insert) {
-      tables.set(change.table, hash(change), change.value);
+      tables.set(change.table, changeHash, change.clock, change.value);
     } else if (change.$type == Update) {
-      if (change.getClock(change.rowId) < change.clock) {
-        tables.set(change.table, change.rowId, change.value, change.clock);
-      }
+      tables.set(change.table, change.rowId, change.clock, change.value);
     } else if (change.$type == Delete) {
       tables.remove(change.table, change.rowId, change.clock);
     }
   });
 
   return {get: tables.get, getAll: tables.getAll, insert, update, remove, subscribe: share.subscribe};
+}
+
+function clockLessThan(c1, c2) {
+  return c2 != undefined && (c1.global < c2.global
+    || (c1.global == c2.global && (c1.site < c2.site
+      || (c1.site == c2.site && c1.local < c2.local))));
 }
 
 async function Share(idb, discovery) {
@@ -70,7 +94,7 @@ async function Share(idb, discovery) {
       return {changes: changes.after(req.cursor), cursor: changes.cursor()};
     }],
     getUnseenChanges: [GetUnseenChangesReq, GetUnseenChangesResp, req => {
-      const bloomfilter = BloomFilter(req.bloomfilter);
+      const bloomfilter = BloomFilter(req.bloomFilter);
       const missing = [];
       for (const [hash, change] of changes.iterate()) {
         if (!bloomfilter.has(hash)) {
@@ -84,25 +108,30 @@ async function Share(idb, discovery) {
   const subscribers = [];
   const subscribe = fn => subscribers.push(fn);
   function processChanges(c) {
-    c.map(change => {
-      if (changes.insert(change)) {
-        subscribers.forEach(f => f(change));
+    c.map(async changeBin => {
+      const changeHash = await hash(changeBin);
+      if (await changes.insert(changeHash, changeBin)) {
+        const change = Change.read(changeBin);
+        subscribers.forEach(f => f(changeHash, change));
       }
     });
   }
   discovery.onPeer(async peer => {
     const stub = Stub(peer, handler);
-    const resp = await stub.getUnseenChanges({bloomfilter: changes.bloomFilterBinary()});
-    stubs.set(peer.id, {stub, cursor: resp.cursor});
+    const resp = await stub.getUnseenChanges({bloomFilter: changes.bloomFilterBinary()});
+    stubs.set(peer.id, Object.assign(stub, {cursor: resp.cursor}));
     processChanges(resp.changes);
+  });
+  discovery.onPeerDisconnect(async peer => {
+    stubs.delete(peer.id);
   });
   setInterval(() => {
     stubs.forEach(async stub => {
-      const resp = await stub.getRecentChanges(stub.cursor);
+      const resp = await stub.getRecentChanges({cursor: stub.cursor});
       stub.cursor = resp.cursor;
       processChanges(resp.changes);
     });
-  }, 1000);
+  }, 100000);
   return {send, subscribe}
 }
 
@@ -113,10 +142,9 @@ function Changes(idb) {
   const cursor = () => index.length;
   const after = cursor => index.slice(cursor);
   const iterate = () => changes.entries();
-  function insert(change) {
-    const id = hash(change);
-    if (!changes.has(id)) {
-      insertHashed(id, change);
+  async function insert(changeHash, change) {
+    if (!changes.has(changeHash)) {
+      insertHashed(changeHash, change);
       return true;
     } else {
       return false;
@@ -132,7 +160,7 @@ function Changes(idb) {
     const req = idb.transaction('changes', 'readonly').objectStore('changes').getAll();
     req.onerror = () => reject(req.error);
     req.onsuccess = () => {
-      bloomFilter = BloomFilter(req.result.length, 0.0000001);
+      bloomFilter = BloomFilter.fromSize(req.result.length);
       for(const row of req.result) {
         insertHashed(row.hash, row.change);
       }
@@ -149,19 +177,19 @@ function Tables(idb) {
   const get = (table, rowId) => getAll(table).get(rowId);
   const getClock = rowId => clocks.get(rowId);
   function getAll(table) {
-    if (!tables.contains(table)) {
+    if (!tables.has(table)) {
       tables.set(table, new Map());
     }
     return tables.get(table);
   }
   function set(table, rowId, clock, value) {
-    getAll(row.table).put(rowId, value);
-    clocks.put(rowId, clock);
+    getAll(table).set(rowId, value);
+    clocks.set(rowId, clock);
     idb.transaction('tables', 'readwrite').objectStore('tables').put({id: [table, rowId], clock, value});
   }
   function remove(table, rowId, clock) {
-    getAll(row.table).remove(rowId, clock);
-    clocks.put(rowId, clock);
+    getAll(table).remove(rowId, clock);
+    clocks.set(rowId, clock);
     idb.transaction('tables', 'readwrite').objectStore('tables').put({id: [table, rowId], clock});
   }
   return new Promise((resolve, reject) => {
@@ -170,13 +198,33 @@ function Tables(idb) {
     req.onsuccess = () => {
       for(const row of req.result) {
         if (row.value) {
-          getAll(row.id[0]).put(row.id[1], row.value);
+          getAll(row.id[0]).set(row.id[1], row.value);
         }
-        clocks.put(row.id[1], row.clock);
+        clocks.set(row.id[1], row.clock);
       }
       resolve({get, getClock, getAll, set, remove});
     }
   });
+}
+
+async function hash(binary) {
+  const hash = new Uint16Array(await crypto.subtle.digest('SHA-256', binary));
+  const alphabet = '0123456789abcdefghjkmnpqrstuvwxyz';
+  const base = alphabet.length;
+  const out = [];
+  var current = 0;
+  for (var i=0; i<hash.length; i++) {
+    current = current * 65536 + hash[i];
+    const octet = [];
+    while (current >= base) {
+      const remainder = current % base;
+      octet.push(alphabet[remainder]);
+      current = (current - remainder) / base;
+    }
+    out.push(octet);
+  }
+  out[out.length-1].push(alphabet[current]);
+  return out.flatMap(x => x.reverse()).join('');
 }
 
 export {init};

@@ -64,7 +64,7 @@ function sortBy(array, key) {
 }
 
 function BloomFilter() {
-  return {has: () => true, add: () => 0, toBinary: () => 'binary'};
+  return {has: () => false, add: () => 0, toBinary: () => new Uint8Array(10)};
 }
 
 export {hexToByteString, base64, randomChars, mapRemove, mapSet, sleep, Event, sortBy, BloomFilter};

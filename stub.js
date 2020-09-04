@@ -27,7 +27,7 @@ function Stub({pc, channel}, methods) {
   }
 
   const stub = {};
-  for (let [method, [request, response, execute]] of Object.entries(methods.methods)) {
+  for (let [method, [request, response, execute]] of Object.entries(methods)) {
     stub[method] = req => new Promise((resolve, reject) => {
       const id = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
       inflight.set(id, {resolve, reject});
