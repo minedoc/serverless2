@@ -12,8 +12,6 @@ async function init() {
   });
 }
 
-// TODO P4: Change.write(Type(Foo, value)) -> Change.writeFoo(value)
-
 async function Database(settings) {
   const clock = {
     global: 0,

@@ -63,8 +63,16 @@ function sortBy(array, key) {
   return array.slice(0).sort((a, b) => cmp(key(a), key(b)));
 }
 
-function BloomFilter() {
-  return {has: () => false, add: () => 0, toBinary: () => new Uint8Array(10)};
+function LeaderChannel(process) {
+  const worker = new SharedWorker('leaderChannel.js');
+  worker.port.onmessage = event => {
+    process(event);
+  };
+  function send(message) {
+    worker.port.postMessage(message);
+    return TODO.hasLeaderAcknowledgedMessage();
+  }
+  return {send};
 }
 
-export {hexToByteString, base64, randomChars, mapRemove, mapSet, sleep, Event, sortBy, BloomFilter};
+export {hexToByteString, base64, randomChars, mapRemove, mapSet, sleep, Event, sortBy};

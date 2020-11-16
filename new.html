@@ -7,14 +7,20 @@ init();
 <pre>
 minimal sync
   no query
+    map and filter the Dict yourself
   no realtime query
+    re-query to get new values
   no ui toolkit
-  no smart arrays
   no schema
+    that's a bad idea
   no await
     everything done in-memory
-    doesn't matter if indexeddb lags behind - it is used at load time only
-    leader election
+    indexed db is best effort persistence
+      how to guarantee it works
+  leader election
+    write to indexeddb = is leader
+    do network receive as usual
+    do not network send, direct channel to leader
   manual and code duplication
     local and remote changes are separate
   no dag
@@ -24,19 +30,10 @@ minimal sync
     update depends on insert but can be resolved without it
 
 how is old change handled
-  merkle tree sounds difficult
-  send everything
-  names
-    set reconciliation
-    anti-entropy
-  just send all the change id (first 64 bits)
-  collision probability ~ keys^2/(2 * keyspace)
-    bits = log2(keys^2 / probability)
+  bloom filter
+  probability = keys^2/(2 * keyspace)
+    bits = log2(keys^2 / probability) = 2 * log2(keys) - log2(probability)
 
-dag based
-  dag is linearized into a consistent timeline
-  changes may apply to any point in history
-    what about non-commutable changes - O(n) if change is non-commutable
 
 </pre>
 

@@ -17,6 +17,8 @@ const string = measured(x => typeof x == 'string', 'string', utf8decode, utf8enc
 const json = measured(x => true, 'json', x => JSON.parse(utf8decode(x)), x => utf8encode(JSON.stringify(x)));
 const space = Uint8Array.of(32);
 
+// TODO P4: Change.write(Type(Foo, value)) -> Change.writeFoo(value)
+
 function throwNaN(val, orig) {
   if (Number.isNaN(val)) { throw 'expected number, got: ' + orig + ' => ' + val; }
   return val;
