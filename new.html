@@ -8,6 +8,7 @@ init();
 minimal sync
   no query
     map and filter the Dict yourself
+    no indexes
   no realtime query
     re-query to get new values
   no ui toolkit
@@ -15,19 +16,26 @@ minimal sync
     that's a bad idea
   no await
     everything done in-memory
+    how to avoid hash await
     indexed db is best effort persistence
       how to guarantee it works
-  leader election
-    write to indexeddb = is leader
-    do network receive as usual
-    do not network send, direct channel to leader
-  manual and code duplication
-    local and remote changes are separate
+  no concurrency
+    don't worry about leader election
+    eventually need to solve
   no dag
-    don't need to save un-processable changes
-    simple dependency model with no depth
-    all needed data is in the change (eg table is duplicate)
-    update depends on insert but can be resolved without it
+    changes are self sufficient
+    last writer wins
+  yes encryption
+    authenticity - sign
+    privacy - encrypt
+
+data model
+  tables of lww rows
+  API
+    insert(table, value)
+    update(table, key, value)
+    get(table, key)
+    getAll(table)
 
 how is old change handled
   bloom filter
