@@ -1,81 +1,101 @@
-// m should specify the number of bits
-// k specifies the number of hashing functions.
+const wordSize = 8, wordConstructor = Uint8Array;
+const minItems = 1000;  // under this level bloomfilter unreliable
+const OFFSET = 2, HASH_OFFSET = 2;
+const SEED_OFFSET = 1;
 
-function BloomFilter(buckets) {
-  const hashes = buckets[0];
-  const bits = (buckets.length-1)* 8;
+function BloomFilter(binary) {
+  const hashes = binary[binary.length - HASH_OFFSET];
+  const seed = binary[binary.length - SEED_OFFSET];
+  const bits = (binary.length - OFFSET) * wordSize;
 
-  // See http://willwhim.wpengine.com/2011/09/03/producing-n-hash-functions-by-hashing-only-once/
-  function locations(v) {
-    const r = [];
-    const a = positiveMod(fnv_1a(v, 0), bits);
-    const b = positiveMod(fnv_1a(v, 1576284489), bits); // The seed value is chosen randomly
-    var x = a;
-    for (var i = 0; i < hashes; ++i) {
-      r[i] = x;
-      x = (x + b) % bits;
+  // "Enhanced Double Hashing" Peter C. Dillinger and Panagiotis Manolios
+  function getIndices(key) {
+    let hash1 = murmurhash3_32_gc(key, 0x4b21941e + seed) % bits;
+    let hash2 = murmurhash3_32_gc(key, 0x0931fc11 + hash1) % bits;
+    let indices = [hash1];
+    for (var i = 1; i < hashes; i++) {
+      hash1 = (hash1 + hash2) % bits;
+      hash2 = (hash2 + i) % bits;
+      indices[i] = hash1;
     }
-    return r;
+    return indices;
   }
-  function add(v) {
-    const l = locations(v);
+  function add(key) {
+    const l = getIndices(key);
     for (var i = 0; i < hashes; i++) {
-      buckets[Math.floor(l[i] / 8) + 1] |= 1 << (l[i] % 8)
+      binary[Math.floor(l[i] / wordSize)] |= 1 << (l[i] % wordSize)
     };
   }
-  function has(v) {
+  function has(key) {
     if (bits == 0) {
       return false;
     }
-    const l = locations(v);
+    const l = getIndices(key);
     for (var i = 0; i < hashes; i++) {
-      if ((buckets[Math.floor(l[i] / 8) + 1] & (1 << (l[i] % 8))) === 0) {
+      if ((binary[Math.floor(l[i] / wordSize)] & (1 << (l[i] % wordSize))) === 0) {
         return false;
       }
     }
     return true;
   };
-  return {add, has, toBinary: () => buckets};
+  return {add, has, binary};
 }
 BloomFilter.fromSize = function(items, probability=0.0000001) {
-  const idealBits = -Math.ceil(items * Math.log2(probability) / Math.log(2));
-  const hashes = Math.round(idealBits / items * Math.log(2));
-  const bytes = Math.ceil(idealBits / 8);
-  const buckets = new Uint8Array(bytes + 1);
-  buckets[0] = hashes;
-  return BloomFilter(buckets);
+  const ln2 = Math.log(2);
+  const bits = Math.ceil(-Math.max(items, minItems) * Math.log(probability) / ln2 / ln2);
+  const hashes = Math.ceil(-Math.log(probability) / ln2);
+  const bitsPow2 = Math.pow(2, Math.ceil(Math.log2(bits)));
+  const binary = new wordConstructor(bitsPow2 / wordSize + OFFSET);
+  binary[binary.length - HASH_OFFSET] = hashes;
+  binary[binary.length - SEED_OFFSET] = Math.floor(Math.random() * 1000000);
+  return BloomFilter(binary);
 }
 
-const positiveMod = (x, y) => ((x % y) + y) % y;
+// MurmurHash3 - Gary Court and Austin Appleby
+// http://github.com/garycourt/murmurhash-js
+function murmurhash3_32_gc(key, seed) {
+  var remainder, bytes, h1, h1b, c1, c1b, c2, c2b, k1, i;
+  remainder = key.length & 3; // key.length % 4
+  bytes = key.length - remainder;
+  h1 = seed;
+  c1 = 0xcc9e2d51;
+  c2 = 0x1b873593;
+  i = 0;
+  while (i < bytes) {
+    k1 =
+      ((key.charCodeAt(i) & 0xff)) |
+      ((key.charCodeAt(++i) & 0xff) << 8) |
+      ((key.charCodeAt(++i) & 0xff) << 16) |
+      ((key.charCodeAt(++i) & 0xff) << 24);
+    ++i;
+    k1 = ((((k1 & 0xffff) * c1) + ((((k1 >>> 16) * c1) & 0xffff) << 16))) & 0xffffffff;
+    k1 = (k1 << 15) | (k1 >>> 17);
+    k1 = ((((k1 & 0xffff) * c2) + ((((k1 >>> 16) * c2) & 0xffff) << 16))) & 0xffffffff;
 
-// Fowler/Noll/Vo hashing.
-// Nonstandard variation: this function optionally takes a seed value that is incorporated
-// into the offset basis. According to http://www.isthe.com/chongo/tech/comp/fnv/index.html
-// "almost any offset_basis will serve so long as it is non-zero".
-function fnv_1a(v, seed) {
-  var a = 2166136261 ^ seed;
-  for (var i = 0, n = v.length; i < n; ++i) {
-    var c = v.charCodeAt(i),
-        d = c & 0xff00;
-    if (d) a = fnv_multiply(a ^ d >> 8);
-    a = fnv_multiply(a ^ c & 0xff);
+    h1 ^= k1;
+    h1 = (h1 << 13) | (h1 >>> 19);
+    h1b = ((((h1 & 0xffff) * 5) + ((((h1 >>> 16) * 5) & 0xffff) << 16))) & 0xffffffff;
+    h1 = (((h1b & 0xffff) + 0x6b64) + ((((h1b >>> 16) + 0xe654) & 0xffff) << 16));
   }
-  return fnv_mix(a);
-}
+  k1 = 0;
+  switch (remainder) {
+    case 3: k1 ^= (key.charCodeAt(i + 2) & 0xff) << 16;
+    case 2: k1 ^= (key.charCodeAt(i + 1) & 0xff) << 8;
+    case 1: k1 ^= (key.charCodeAt(i) & 0xff);
+    k1 = (((k1 & 0xffff) * c1) + ((((k1 >>> 16) * c1) & 0xffff) << 16)) & 0xffffffff;
+    k1 = (k1 << 15) | (k1 >>> 17);
+    k1 = (((k1 & 0xffff) * c2) + ((((k1 >>> 16) * c2) & 0xffff) << 16)) & 0xffffffff;
+    h1 ^= k1;
+  }
+  h1 ^= key.length;
 
-// a * 16777619 mod 2**32
-function fnv_multiply(a) {
-  return a + (a << 1) + (a << 4) + (a << 7) + (a << 8) + (a << 24);
-}
+  h1 ^= h1 >>> 16;
+  h1 = (((h1 & 0xffff) * 0x85ebca6b) + ((((h1 >>> 16) * 0x85ebca6b) & 0xffff) << 16)) & 0xffffffff;
+  h1 ^= h1 >>> 13;
+  h1 = ((((h1 & 0xffff) * 0xc2b2ae35) + ((((h1 >>> 16) * 0xc2b2ae35) & 0xffff) << 16))) & 0xffffffff;
+  h1 ^= h1 >>> 16;
 
-// See https://web.archive.org/web/20131019013225/http://home.comcast.net/~bretm/hash/6.html
-function fnv_mix(a) {
-  a += a << 13;
-  a ^= a >>> 7;
-  a += a << 3;
-  a ^= a >>> 17;
-  a += a << 5;
-  return a & 0xffffffff;
+  return h1 >>> 0;
 }
 
 export {BloomFilter};
