@@ -5,43 +5,54 @@ init();
 </script>
 
 <pre>
+todo
+  P1 - having loading and connectivity state
+    first fetch - nobody found
+    first fetch - downloading
+    offline
+    sharing
+  P2 - detect conflicts on startup diff
+    you receive newer write and they missing your older write
+  P4 - batch writes
+
 minimal sync
   no query
     map and filter the Dict yourself
     no indexes
   no realtime query
     re-query to get new values
-  no ui toolkit
+  no ui
+    this is a db
   no schema
     that's a bad idea
   no await
-    everything done in-memory
-    how to avoid hash await
-    indexed db is best effort persistence
-      how to guarantee it works
+    data stored in memory, indexed db is persistence only
   no concurrency
-    don't worry about leader election
-    eventually need to solve
+    use transactions when modifying idb to ensure correctness
   no dag
     changes are self sufficient
     last writer wins
-  yes encryption
+    cannot statically detect conflicting edits
+      normal writes form linked list
+      conficting writes form tree
+  yes encryption - but later
     authenticity - sign
     privacy - encrypt
+
+correctness
+  multiple unsynchronized users of idb
+  idb changes are not pushed to other users
+  local sync with idb
+    changes: writes are key hashed thus idempotent
+    tables: use indexeddb transaction compare clock and overwrite
 
 data model
   tables of lww rows
   API
-    insert(table, value)
+    table(table)
+    insert(table, value) returns key
     update(table, key, value)
-    get(table, key)
-    getAll(table)
-
-how is old change handled
-  bloom filter
-  probability = keys^2/(2 * keyspace)
-    bits = log2(keys^2 / probability) = 2 * log2(keys) - log2(probability)
-
+    remove(table, key)
 
 </pre>
 
