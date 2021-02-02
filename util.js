@@ -6,22 +6,8 @@ function hexToByteString(hex) {
   return bytes.join('');
 }
 
-const base64 = {
-  encode(data) {
-    return window.btoa(Array.from(new Uint8Array(data)).map(x => String.fromCharCode(x)).join(''));
-  },
-  decode(base64) {
-    var bin = window.atob(base64);
-    var result = new Uint8Array(bin.length);
-    for (var i = 0; i < bin.length; i++) {
-      result[i] = bin.charCodeAt(i);
-    }
-    return result;
-  },
-};
-
-const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-const randomChar = () => chars[Math.floor(chars.length * Math.random())];
+const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+const randomChar = () => alphabet[Math.floor(alphabet.length * Math.random())];
 function randomChars(length) {
   return Array.from({length}, randomChar).join('');
 }
@@ -35,44 +21,41 @@ function mapRemove(map, key, value) {
   return result;
 }
 
-function mapSet(map, key, value) {
-  map.set(key, value);
-  return value;
-}
-
-function sleep(ms, value) {
-  return new Promise(resolve => setTimeout(() => resolve(value), ms));
-}
-
-function Event() {
-  const watchers = new Map();
-
-  function emit(name, ...args) {
-    (watchers.get(name) || []).forEach(fn => fn.apply(null, args));
+async function hashBin(binary) {
+  // strings: Map compares buffers by reference, string keys are easier to read
+  const hash = new Uint16Array(await crypto.subtle.digest('SHA-256', binary));
+  const base = alphabet.length;
+  const out = [];
+  var current = 0;
+  for (var i=0; i<hash.length; i++) {
+    current = current * 65536 + hash[i];
+    const octet = [];
+    while (current >= base) {
+      const remainder = current % base;
+      octet.push(alphabet[remainder]);
+      current = (current - remainder) / base;
+    }
+    out.push(octet);
   }
+  out[out.length-1].push(alphabet[current]);
+  return out.flatMap(x => x.reverse()).join('');
+}
 
-  function on(name, fn) {
-    (watchers.get(name) || mapSet(watchers, name, new Set())).add(fn);
+function randomId() {
+  const base = alphabet.length;
+  const out = [];
+  let now = Math.floor(Date.now() / 1000);
+  while (now > base) {
+    const remainder = now % base;
+    out.push(alphabet[remainder]);
+    now = (now - remainder) / base
   }
-
-  return {on, emit, watchers};
-}
-
-const cmp = (a, b) => (a > b ? 1 : (a < b ? -1 : 0));
-function sortBy(array, key) {
-  return array.slice(0).sort((a, b) => cmp(key(a), key(b)));
-}
-
-function LeaderChannel(process) {
-  const worker = new SharedWorker('leaderChannel.js');
-  worker.port.onmessage = event => {
-    process(event);
-  };
-  function send(message) {
-    worker.port.postMessage(message);
-    return TODO.hasLeaderAcknowledgedMessage();
+  out.push(alphabet[now]);
+  out.reverse();
+  for (let i = 0; i < 6; i++) {
+    out.push(alphabet[Math.floor(Math.random() * base)]);
   }
-  return {send};
+  return out.join('') + randomChars(6);
 }
 
-export {hexToByteString, base64, randomChars, mapRemove, mapSet, sleep, Event, sortBy};
+export {hexToByteString, randomChars, mapRemove, hashBin, randomId};
