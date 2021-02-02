@@ -14,11 +14,6 @@ const Clock = message('Clock', {
   site: int(2),
   local: int(3),
 });
-const Insert = message('Insert', {
-  clock: Clock(1),
-  table: string(2),
-  value: json(3),
-});
 
 const Update = message('Update', {
   clock: Clock(1),
@@ -33,7 +28,7 @@ const Delete = message('Delete', {
   rowId: string(3),
 });
 
-const Change = oneof('Change', [Insert, Update, Delete]);
+const Change = oneof('Change', [Update, Delete]);
 
 const GetUnseenChangesReq = message('GetUnseenChangesReq', {
   bloomFilter: binary(1),
@@ -53,4 +48,4 @@ const GetRecentChangesResp = message('GetRecentChangesResp', {
   cursor: int(2),
 });
 
-export {Rpc, Insert, Update, Delete, Change, GetUnseenChangesReq, GetUnseenChangesResp, GetRecentChangesReq, GetRecentChangesResp};
+export {Rpc, Update, Delete, Change, GetUnseenChangesReq, GetUnseenChangesResp, GetRecentChangesReq, GetRecentChangesResp};
