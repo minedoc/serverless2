@@ -45,16 +45,12 @@ function randomId() {
   const base = alphabet.length;
   const out = [];
   let now = Math.floor(Date.now() / 1000);
-  while (now > base) {
+  while (now > 0) {
     const remainder = now % base;
     out.push(alphabet[remainder]);
     now = (now - remainder) / base
   }
-  out.push(alphabet[now]);
   out.reverse();
-  for (let i = 0; i < 6; i++) {
-    out.push(alphabet[Math.floor(Math.random() * base)]);
-  }
   return out.join('') + randomChars(6);
 }
 
