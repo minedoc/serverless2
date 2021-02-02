@@ -1,6 +1,6 @@
 const MESSAGE_END = 0;
 const TYPE_FIELD = '$type';
-const proto = (proto) => Object.assign((id) => Object.assign(Object.create(proto), {id}), proto);
+const proto = (p) => Object.assign((id) => Object.assign(Object.create(p), {id}), p);
 const registry = new Map();
 const utf8encoder = new TextEncoder();
 const utf8decoder = new TextDecoder();
@@ -104,6 +104,9 @@ function message(name, fields) {
       }
       return int.writeTo(MESSAGE_END, bytes, offset, path + '.$messageEnd');
     },
+    wrap(val) {
+      return Type(message, val);
+    }
   });
   registry.set(name, message);
   return message;
