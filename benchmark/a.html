@@ -22,7 +22,7 @@ async function stuff() {
 
   // sign and verify time
   // RSASSA is fast enough
-  if (true) {
+  if (false) {
     var start = Date.now();
     var encoder = new TextEncoder();
     var encoded = encoder.encode('this is a test for a trivial message');
@@ -118,6 +118,16 @@ async function stuff() {
     console.log('time', Date.now() - start);
   }
 
+  // write 100k
+  if (true) {
+    var start = Date.now();
+    for (var i=0; i<100000; i++) {
+      const store = uw.transaction('store', 'readwrite', {durability: 'relaxed'}).objectStore('store');
+      store.put({id: 'hi', value: 'what'});
+    }
+    console.log('time', Date.now() - start);
+  }
+
   // pretty fast to read this data
   // recommend batch size of ~10
   // 3.1 seconds - 10x10000 reads
@@ -128,9 +138,10 @@ async function stuff() {
   if (false) {
     var start = Date.now();
     var done = 0;
-    for (var j=0; j<1000; j++) {
-      const store = uw.transaction('store', 'readonly').objectStore('store');
-      for (var i=0; i<100; i++) {
+    for (var j=0; j<10000; j++) {
+      // durability makes no difference
+      const store = uw.transaction('store', 'readonly', {durability: 'relaxed'}).objectStore('store');
+      for (var i=0; i<10; i++) {
         store.get('hi').onsuccess = x => done++;
       }
     }
