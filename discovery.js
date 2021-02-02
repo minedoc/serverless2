@@ -6,15 +6,12 @@ function randomPeerId() {
   return '-OH0001-' + randomChars(12);
 }
 
-function Discovery(url, infoHash) {
+function Discovery(url, infoHash, onPeer, onPeerDisconnect) {
   // TODO: make infoHash = hash(publicKey)
   const ws = new WebSocket(url);
   const myPeerId = randomPeerId();
   const pendingPeers = new Map();
   const peers = new Map();
-  const onPeerWatchers = [], onPeerDisconnectWatchers = [];
-  const onPeer = watcher => onPeerWatchers.push(watcher);
-  const onPeerDisconnect = watcher => onPeerDisconnectWatchers.push(watcher);
   async function makeOffer() {
     const pc = new RTCPeerConnection({
       iceServers: [{urls:["stun:stun.l.google.com:19302"]}],
@@ -49,11 +46,12 @@ function Discovery(url, infoHash) {
       peers.set(peerId, peer);
       peer.pc.onconnectionstatechange = event => {
         if (peer.pc.connectionState != 'connected') {
-          onPeerDisconnectWatchers.forEach(f => f(peer));
+          onPeerDisconnect(peer);
           peers.delete(peerId);
         }
       };
-      onPeerWatchers.forEach(f => f(peer));
+      console.log('added a peer: ', peer);
+      onPeer(peer);
     };
     if (peer.channel.readyState == 'open') {
       save();
@@ -106,10 +104,6 @@ function Discovery(url, infoHash) {
       }));
     }
   };
-  onPeer(peer => {
-    console.log('added a peer: ', peer);
-  });
-  return {onPeer, onPeerDisconnect};
 }
 
 export {Discovery};
