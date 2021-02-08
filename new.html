@@ -6,14 +6,28 @@ init();
 
 <pre>
 todo
+  P0 - how to derive random binary
+    createDatabase(server, encryption) - connectionObj
+    openDatabase(connectionObj)
+  P0 - size limit of webrtc, how to deal with huge sync
   P1 - having loading and connectivity state
-    first fetch - nobody found
-    first fetch - downloading
+    empty - new db
+    empty - no peers
+    empty - fetching (progress)
     offline
-    sharing
+    online
+  P2 - encryption
+    acl writes
+      signature: public can verify, private can sign
+      verify - 50k message per sec O(1)
+    acl reads - encrypt
+      transport level encryption
+      symmetric: use aes-gcm with 12 byte random value
+      decrypt - 50k messages per sec O(length)
+      A: randomA then encrypt(data, key, randomA)
   P2 - detect conflicts on startup diff
     you receive newer write and they missing your older write
-  P4 - batch writes
+  P4 - batch changes to do less encryption
 
 minimal sync
   no query
@@ -38,6 +52,8 @@ minimal sync
   yes encryption - but later
     authenticity - sign
     privacy - encrypt
+  no strings - for now
+    future: accumulating set of edits, apply library or replicated growable arrays
 
 correctness
   multiple unsynchronized users of idb

@@ -1,9 +1,23 @@
 import {Rpc} from './types.js';
 import {mapRemove} from './util.js';
 
-function Stub({pc, channel}, methods) {
+async function Stub({pc, channel}, methods) {
   const inflight = new Map();
   const handlers = new Map();
+  const myIv = window.crypto.getRandomValues(new Uint8Array(12));
+
+  console.log(myIv);
+  channel.send(myIv);
+  const theirIv = await new Promise((resolve, reject) => {
+    channel.onmessage = async event => {
+      if (even.data.length == 12) {
+        resolve(new Uint8Array(event.data));
+      } else {
+        reject('stub: invalid random');
+      }
+    }
+  });
+  console.log(theirIv);
 
   channel.onmessage = async event => {
     const {rpcType, id, method, payload} = Rpc.read(new Uint8Array(event.data));
