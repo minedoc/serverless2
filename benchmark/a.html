@@ -20,11 +20,13 @@ async function stuff() {
 
   await db.put('store', {id: 'hi', value: 'what'});
 
+  var original = '123456789012345678901234567890'
+  original = original + original + original + original + original;
+
   // sign and verify time
   // RSA-PSS is fast enough
   if (true) {
-    var encoder = new TextEncoder();
-    var encoded = encoder.encode('this is a test for a trivial message');
+    var encoded = new TextEncoder().encode();
     var algorithm = 'RSA-PSS';
     var algorithmSign = {name: algorithm, saltLength: 32};
     // RSASSA-PKCS1-v1_5: var algorithmSign = algorithm;
@@ -51,15 +53,16 @@ async function stuff() {
     // 'RSASSA-PKCS1-v1_5': 5 seconds 100k
     // 'RSA-PSS': 12 seconds 100k
     // 'ECDSA': 60 seconds 100k
-    for (var i=0; i<30000; i++) {
-      await window.crypto.subtle.verify(algorithmSign, keyPair.publicKey, signed, encoded);
+    var prs = [];
+    for (var i=0; i<50000; i++) {
+      prs.push(window.crypto.subtle.verify(algorithmSign, keyPair.publicKey, signed, encoded));
     }
+    var out = await Promise.all(prs);
     console.log('verify time ms', Date.now() - start);
   }
 
   // encrypt decrypt
-  if (false) {
-    var original = 'this is a test for a trivial message'
+  if (true) {
     var encoded = new TextEncoder().encode(original);
     var key = await crypto.subtle.generateKey({
       name: 'AES-GCM',
@@ -74,11 +77,13 @@ async function stuff() {
     console.log('size bytes', encrypted.byteLength);
     window.encrypted = encrypted;
     var start = Date.now();
-    for (var i=0; i<30000; i++) {
-      var out = await window.crypto.subtle.decrypt({name: 'AES-GCM', iv: iv}, key, encrypted);
+    var prs = [];
+    for (var i=0; i<50000; i++) {
+      prs.push(window.crypto.subtle.decrypt({name: 'AES-GCM', iv: iv}, key, encrypted));
     }
+    var out = await Promise.all(prs);
     console.log('decrypt time ms', Date.now() - start);
-    if(new TextDecoder().decode(out) != original) {
+    if(new TextDecoder().decode(out[0]) != original) {
       console.log('fail');
     }
   }
