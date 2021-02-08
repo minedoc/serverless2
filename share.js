@@ -20,7 +20,7 @@ async function Share(idb, settings, onChange) {
     });
   }
   const discovery = Discovery(settings.tracker, settings.feed, async peer => {
-    const stub = Stub(peer, {
+    const stub = await Stub(peer, settings.readKey, {
       getRecentChanges: [GetRecentChangesReq, GetRecentChangesResp, req => {
         return {changes: changes.changeList.slice(req.cursor), cursor: changes.changeList.length};
       }],

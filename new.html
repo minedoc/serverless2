@@ -20,11 +20,6 @@ todo
     acl writes
       signature: public can verify, private can sign
       verify - 50k message per sec O(1)
-    acl reads - encrypt
-      transport level encryption
-      symmetric: use aes-gcm with 12 byte random value
-      decrypt - 50k messages per sec O(length)
-      A: randomA then encrypt(data, key, randomA)
   P2 - detect conflicts on startup diff
     you receive newer write and they missing your older write
   P4 - batch changes to do less encryption
