@@ -45,7 +45,13 @@ function Discovery(url, infoHash, onPeer, onPeerDisconnect) {
       peer.id = peerId;
       peers.set(peerId, peer);
       peer.pc.onconnectionstatechange = event => {
-        if (peer.pc.connectionState != 'connected') {
+        if (peer.pc.connectionState != 'connected' && peers.has(peerId)) {
+          onPeerDisconnect(peer);
+          peers.delete(peerId);
+        }
+      };
+      peer.channel.onclose = event => {
+        if (peers.has(peerId)) {
           onPeerDisconnect(peer);
           peers.delete(peerId);
         }
