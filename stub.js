@@ -45,13 +45,11 @@ async function Stub({pc, channel}, key, methods) {
     stub[method] = req => new Promise((resolve, reject) => {
       const id = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
       inflight.set(id, {resolve, reject});
-      (async () => {
-        channel.send(await encrypt(Rpc.write({
-          method, id,
-          rpcType: Rpc.REQUEST,
-          payload: request.write(req),
-        })));
-      })();
+      encrypt(Rpc.write({
+        method, id,
+        rpcType: Rpc.REQUEST,
+        payload: request.write(req),
+      })).then(data => channel.send(data));
       console.log('[rpc] sent req:', method, req);
     });
     handlers.set(method, {request, response, execute});
