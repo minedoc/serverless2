@@ -6,23 +6,20 @@ init();
 
 <pre>
 todo
-  P0 - how to derive random binary
-    createDatabase(server, encryption) - connectionObj
-    openDatabase(connectionObj)
-  P0 - size limit of webrtc, how to deal with huge sync
   P1 - having loading and connectivity state
+    1hr
     empty - new db
     empty - no peers
     empty - fetching (progress)
     offline
     online
-  P2 - encryption
-    acl writes
-      signature: public can verify, private can sign
-      verify - 50k message per sec O(1)
   P2 - detect conflicts on startup diff
+    30m
     you receive newer write and they missing your older write
-  P4 - batch changes to do less encryption
+  P3 - pull concurrency problem, zipping forwards and back
+    30m
+  P4 - convenience functions - createDb(params)-string, openDb(string)
+  P4 - use dataview instead of uint8array, encode binary more efficiently
 
 minimal sync
   no query
@@ -45,8 +42,9 @@ minimal sync
       normal writes form linked list
       conficting writes form tree
   yes encryption - but later
-    authenticity - sign
-    privacy - encrypt
+    read control via rpc encryption - done
+    write control via digital signature - future
+      change = message(signature, repeated edit)
   no strings - for now
     future: accumulating set of edits, apply library or replicated growable arrays
 
