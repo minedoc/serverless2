@@ -1,9 +1,11 @@
-import {Rpc} from './types.js';
+import {MessagePiece, Rpc} from './types.js';
 import {mapRemove} from './util.js';
 
 async function Stub({pc, channel}, key, methods) {
+  const chunkSize = 60000; // 64k limit
   const inflight = new Map();
   const handlers = new Map();
+  const buffers = new Map();
 
   const myIv = window.crypto.getRandomValues(new Uint8Array(12));
   channel.send(myIv);
@@ -14,29 +16,82 @@ async function Stub({pc, channel}, key, methods) {
       } else {
         reject('stub: invalid random');
       }
+      channel.onmessage = undefined;
     }
   });
   const encrypt = data => window.crypto.subtle.encrypt({name: 'AES-GCM', iv: myIv}, key, data);
   const decrypt = data => window.crypto.subtle.decrypt({name: 'AES-GCM', iv: theirIv}, key, data);
 
+  const sendParts = async data => {
+    const encrypted = await encrypt(Rpc.write(data));
+    const pieceCount = Math.ceil(encrypted.byteLength / chunkSize);
+    const messageId = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
+    for (let piece=0, offset=0; piece < pieceCount; piece++, offset+=chunkSize) {
+      channel.send(MessagePiece.write({
+        messageId, piece, pieceCount,
+        payload: new Uint8Array(encrypted.slice(offset, offset+chunkSize)),
+      }));
+    }
+  };
+
+  function mapGet(map, key, def) {
+    if (map.has(key)) {
+      return map.get(key);
+    } else {
+      map.set(key, def);
+      return def;
+    }
+  }
+
+  function concatArrays(arrays) {
+    let len = 0;
+    for (let i=0; i<arrays.length; len += arrays[i].length, i++) {
+    }
+    const out = new Uint8Array(len);
+    for (let i=0, offset=0; i<arrays.length; offset += arrays[i].length, i++) {
+      out.set(arrays[i], offset);
+    }
+    return out;
+  }
+
+  const receiveParts = async event => {
+    const {messageId, piece, pieceCount, payload} = MessagePiece.read(new Uint8Array(event.data));
+    if (piece == 0 && pieceCount == 1) {
+      return Rpc.read(new Uint8Array(await decrypt(payload)));
+    }
+    const buffer = mapGet(buffers, messageId, { seen: 0, pieces: [] });
+    buffer.pieces[piece] = payload;
+    buffer.seen++;
+    if (buffer.seen == pieceCount) {
+      buffers.delete(messageId);
+      return Rpc.read(new Uint8Array(await decrypt(concatArrays(buffer.pieces))));
+    } else {
+      return null;
+    }
+  }
+
   channel.onmessage = async event => {
-    const {rpcType, id, method, payload} = Rpc.read(new Uint8Array(await decrypt(event.data)));
+    const rpc = await receiveParts(event);
+    if (rpc == null) {
+      return;
+    }
+    const {type, id, method, payload} = rpc;
     const handler = handlers.get(method);
     if (!handler) { throw 'unknown method: ' + method }
-    if (rpcType == Rpc.REQUEST) {
+    if (type == Rpc.REQUEST) {
       const req = handler.request.read(payload);
-      console.log('[rpc] received req:', method, req);
       const resp = await handler.execute(req);
-      channel.send(await encrypt(Rpc.write({
+      sendParts({
         method, id,
-        rpcType: Rpc.RESPONSE,
+        type: Rpc.RESPONSE,
         payload: handler.response.write(resp),
-      })));
-      console.log('[rpc] sent resp:', method, resp);
-    } else if (rpcType == Rpc.RESPONSE) {
+      });
+      console.log('[rpc] server: ', method, 'req', req, '-> resp', resp);
+    } else if (type == Rpc.RESPONSE) {
       const resp = handler.response.read(payload);
-      console.log('[rpc] received resp:', method, resp);
-      mapRemove(inflight, id).resolve(resp);
+      const callback = mapRemove(inflight, id);
+      console.log('[rpc] client: ', method, 'req', callback.req, '-> ', resp);
+      callback.resolve(resp);
     }
   }
 
@@ -44,13 +99,12 @@ async function Stub({pc, channel}, key, methods) {
   for (let [method, [request, response, execute]] of Object.entries(methods)) {
     stub[method] = req => new Promise((resolve, reject) => {
       const id = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
-      inflight.set(id, {resolve, reject});
-      encrypt(Rpc.write({
+      inflight.set(id, {resolve, reject, req});
+      sendParts({
         method, id,
-        rpcType: Rpc.REQUEST,
+        type: Rpc.REQUEST,
         payload: request.write(req),
-      })).then(data => channel.send(data));
-      console.log('[rpc] sent req:', method, req);
+      });
     });
     handlers.set(method, {request, response, execute});
   }

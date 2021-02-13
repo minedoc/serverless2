@@ -1,7 +1,14 @@
 import {message, repeated, string, json, binary, int, oneof} from './binary.js';
 
+const MessagePiece = message('MessagePiece', {
+  messageId: int(1),
+  piece: int(2),
+  pieceCount: int(3),
+  payload: binary(4)
+});
+
 const Rpc = message('Rpc', {
-  rpcType: int(1),
+  type: int(1),
   id: int(2),
   method: string(3),
   payload: binary(4),
@@ -48,4 +55,4 @@ const GetRecentChangesResp = message('GetRecentChangesResp', {
   cursor: int(2),
 });
 
-export {Rpc, Update, Delete, Change, GetUnseenChangesReq, GetUnseenChangesResp, GetRecentChangesReq, GetRecentChangesResp};
+export {MessagePiece, Rpc, Update, Delete, Change, GetUnseenChangesReq, GetUnseenChangesResp, GetRecentChangesReq, GetRecentChangesResp};
