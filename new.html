@@ -6,18 +6,6 @@ init();
 
 <pre>
 todo
-  P2 - detect conflicts on startup diff
-    30m
-    you receive newer write and they missing your older write
-    they send - update(row=123, clock=4)
-    you have - update(row=123, clock=2)
-
-    clocks = new map()
-    for edit in local_unseen_changes (from remote server)
-      clocks.set(edit.id, edit.clock)
-    for edit in remote_unseen_changes (from local server)
-      if clocks.get(edit.id) gt edit.clock:
-        conflicts.add(edit)
   P3 - pull concurrency problem, zipping forwards and back
     30m
   P4 - convenience functions - createDb(params)-string, openDb(string)

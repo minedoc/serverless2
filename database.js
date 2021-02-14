@@ -41,7 +41,7 @@ async function Database(settings) {
     } else if (change.$type == Delete) {
       tables.removeRow(change.table, change.rowId, change.clock);
     }
-  });
+  }, settings.onConflict ?? (x => console.log('conflicts found', x)));
 
   function getNextClock() {
     clock.local++;

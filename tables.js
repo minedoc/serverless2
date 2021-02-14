@@ -1,3 +1,5 @@
+import {clockLessThan} from './util.js';
+
 function Tables(idb) {
   const tables = new Map();
   const clocks = new Map();
@@ -56,12 +58,6 @@ function Tables(idb) {
       resolve([{getTable, setValue, removeRow}, maxClock]);
     }
   });
-}
-
-function clockLessThan(c1, c2) {
-  return (c1.global < c2.global
-    || (c1.global == c2.global && (c1.site < c2.site
-      || (c1.site == c2.site && c1.local < c2.local))));
 }
 
 export {Tables};

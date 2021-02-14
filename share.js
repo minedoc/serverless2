@@ -1,9 +1,9 @@
 import {Discovery} from './discovery.js';
 import {Stub} from './stub.js';
 import {Change, GetRecentChangesReq, GetRecentChangesResp, GetUnseenChangesReq, GetUnseenChangesResp} from './types.js';
-import {hashBin} from './util.js';
+import {hashBin, promiseFn, join, clockLessThan} from './util.js';
 
-async function Share(changes, settings, onChange) {
+async function Share(changes, settings, onChange, onConflict) {
   const stubs = new Map();
   async function sendChange(changeBin) {
     const hash = await hashBin(changeBin);
@@ -18,17 +18,48 @@ async function Share(changes, settings, onChange) {
       }
     });
   }
+  function byRowId(changes) {
+    const map = new Map();
+    for (const c of changes) {
+      if (!map.has(c.rowId) || clockLessThan(map.get(c.rowId).clock, c.clock)) {
+        map.set(c.rowId, c);
+      }
+    }
+    return map;
+  }
+  function ChangeConflict() {
+    const [fromLocalPromise, fromLocal] = promiseFn();
+    const [fromRemotePromise, fromRemote]  = promiseFn();
+    (async function() {
+      const fromLocal = (await fromLocalPromise).map(x => Change.read(x));
+      const fromRemote = (await fromRemotePromise).map(x => Change.read(x));
+      const conflicts = [];
+      join(byRowId(fromLocal), byRowId(fromRemote), (local, remote) => {
+        if (clockLessThan(local.clock, remote.clock)) {
+          conflicts.push(local);
+        }
+      });
+      if (conflicts.length > 0) {
+        onConflict(conflicts);
+      }
+    } ());
+    return {fromLocal, fromRemote};
+  }
   const discovery = Discovery(settings.tracker, settings.feed, async peer => {
+    const changeConflict = ChangeConflict();
     const stub = await Stub(peer, settings.readKey, {
       getRecentChanges: [GetRecentChangesReq, GetRecentChangesResp, req => {
         return {changes: changes.changeList.slice(req.cursor), cursor: changes.changeList.length};
       }],
       getUnseenChanges: [GetUnseenChangesReq, GetUnseenChangesResp, req => {
-        return {changes: changes.getMissingChanges(req.bloomFilter), cursor: changes.changeList.length};
+        const missing = changes.getMissingChanges(req.bloomFilter);
+        changeConflict.fromLocal(missing);
+        return {changes: missing, cursor: changes.changeList.length};
       }],
     });
     stubs.set(peer.id, stub);
     const resp = await stub.getUnseenChanges({bloomFilter: changes.getBloomFilter()});
+    changeConflict.fromRemote(resp.changes);
     stub.cursor = resp.cursor;
     processChanges(resp.changes);
   }, peer => {

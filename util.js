@@ -54,4 +54,23 @@ function randomId() {
   return out.join('') + randomChars(6);
 }
 
-export {hexToByteString, randomChars, mapRemove, hashBin, randomId};
+function promiseFn() {
+  var accept, reject;
+  return [new Promise((a, r) => {accept = a; reject = r}), accept, reject];
+}
+
+function join(left, right, callback) {
+  for (var [key, leftVal] of left.entries()) {
+    if (right.has(key)) {
+      callback(leftVal, right.get(key));
+    }
+  }
+}
+
+function clockLessThan(c1, c2) {
+  return (c1.global < c2.global
+    || (c1.global == c2.global && (c1.site < c2.site
+      || (c1.site == c2.site && c1.local < c2.local))));
+}
+
+export {hexToByteString, randomChars, mapRemove, hashBin, randomId, promiseFn, join, clockLessThan};
