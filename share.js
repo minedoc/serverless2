@@ -45,6 +45,13 @@ async function Share(changes, settings, onChange, onConflict) {
     } ());
     return {fromLocal, fromRemote};
   }
+  async function withStubLocked(stub, action) {
+    if (!stub.syncing) {
+      stub.syncing = true;
+      await action();
+      stub.syncing = false;
+    }
+  }
   const discovery = Discovery(settings.tracker, settings.feed, async peer => {
     const changeConflict = ChangeConflict();
     const stub = await Stub(peer, settings.readKey, {
@@ -57,20 +64,24 @@ async function Share(changes, settings, onChange, onConflict) {
         return {changes: missing, cursor: changes.changeList.length};
       }],
     });
-    stubs.set(peer.id, stub);
-    const resp = await stub.getUnseenChanges({bloomFilter: changes.getBloomFilter()});
-    changeConflict.fromRemote(resp.changes);
-    stub.cursor = resp.cursor;
-    processChanges(resp.changes);
+    withStubLocked(stub, async () => {
+      stubs.set(peer.id, stub);
+      const resp = await stub.getUnseenChanges({bloomFilter: changes.getBloomFilter()});
+      changeConflict.fromRemote(resp.changes);
+      stub.cursor = resp.cursor;
+      processChanges(resp.changes);
+    });
   }, peer => {
     stubs.delete(peer.id);
   });
   setInterval(() => {
-    stubs.forEach(async stub => {
-      const resp = await stub.getRecentChanges({cursor: stub.cursor});
-      stub.cursor = resp.cursor;
-      processChanges(resp.changes);
-    });
+    for (const stub of stubs) {
+      withStubLocked(stub, async () => {
+        const resp = await stub.getRecentChanges({cursor: stub.cursor});
+        stub.cursor = resp.cursor;
+        processChanges(resp.changes);
+      });
+    }
   }, 1*1000);
   return {sendChange, peerCount}
 }
