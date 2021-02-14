@@ -1,16 +1,15 @@
-import {Changes} from './changes.js';
 import {Discovery} from './discovery.js';
 import {Stub} from './stub.js';
 import {Change, GetRecentChangesReq, GetRecentChangesResp, GetUnseenChangesReq, GetUnseenChangesResp} from './types.js';
 import {hashBin} from './util.js';
 
-async function Share(idb, settings, onChange) {
+async function Share(changes, settings, onChange) {
   const stubs = new Map();
-  const changes = await Changes(idb);
   async function sendChange(changeBin) {
     const hash = await hashBin(changeBin);
     changes.addChange(hash, changeBin);
   }
+  const peerCount = () => stubs.size;
   function processChanges(c) {
     c.map(async changeBin => {
       const hash = await hashBin(changeBin);
@@ -42,7 +41,7 @@ async function Share(idb, settings, onChange) {
       processChanges(resp.changes);
     });
   }, 1*1000);
-  return {sendChange}
+  return {sendChange, peerCount}
 }
 
 export {Share};

@@ -1,8 +1,20 @@
+import {Changes} from './changes.js';
 import {Share} from './share.js';
 import {Tables} from './tables.js';
 import {Update, Delete, Change} from './types.js';
 import {randomId} from './util.js';
 
+const State = {
+  empty: Symbol('empty'),
+  ready: Symbol('ready'),
+};
+
+const Connectivity = {
+  online: Symbol('online'),
+  offline: Symbol('offline'),
+};
+
+/* settings { name, tracker, feed, readKey, createDatabase, } */
 async function Database(settings) {
   const idb = await new Promise((resolve, reject) => {
     const req = indexedDB.open(settings.name, 1);
@@ -18,6 +30,18 @@ async function Database(settings) {
     req.onsuccess = () => resolve(req.result);
   });
   const [tables, clock] = await Tables(idb);
+  const changes = await Changes(idb);
+  const share = await Share(changes, settings, (hash, change) => {
+    if (change.clock.global >= clock.global) {
+      clock.global = change.clock.global + 1;
+      clock.local = 0;
+    }
+    if (change.$type == Update) {
+      tables.setValue(change.table, change.rowId, change.clock, change.value);
+    } else if (change.$type == Delete) {
+      tables.removeRow(change.table, change.rowId, change.clock);
+    }
+  });
 
   function getNextClock() {
     clock.local++;
@@ -40,19 +64,14 @@ async function Database(settings) {
     tables.removeRow(table, rowId, clock);
     share.sendChange(Change.write(Delete.wrap({clock, table, rowId})));
   }
-  const share = await Share(idb, settings, (hash, change) => {
-    if (change.clock.global >= clock.global) {
-      clock.global = change.clock.global + 1;
-      clock.local = 0;
-    }
-    if (change.$type == Update) {
-      tables.setValue(change.table, change.rowId, change.clock, change.value);
-    } else if (change.$type == Delete) {
-      tables.removeRow(change.table, change.rowId, change.clock);
-    }
-  });
+  function state() {
+    return changes.changeList.length > 0 ? State.ready : State.empty;
+  }
+  function connectivity() {
+    return share.peerCount() > 0 ? Connectivity.online : Connectivity.offline;
+  }
 
-  return {table: tables.getTable, insert, update, remove};
+  return {table: tables.getTable, insert, update, remove, state, connectivity};
 }
 
-export {Database};
+export {Database, State, Connectivity};
