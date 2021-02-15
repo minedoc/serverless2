@@ -29,9 +29,10 @@ async function Stub({pc, channel}, key, methods) {
     for (let piece=0, offset=0; piece < pieceCount; piece++, offset+=chunkSize) {
       channel.send(MessagePiece.write({
         messageId, piece, pieceCount,
-        payload: new Uint8Array(encrypted.slice(offset, offset+chunkSize)),
+        payload: new Uint8Array(encrypted, offset, Math.min(encrypted.byteLength - offset, chunkSize)),
       }));
     }
+    return encrypted.byteLength;
   };
 
   function mapGet(map, key, def) {
@@ -55,16 +56,16 @@ async function Stub({pc, channel}, key, methods) {
   }
 
   const receiveParts = async event => {
-    const {messageId, piece, pieceCount, payload} = MessagePiece.read(new Uint8Array(event.data));
+    const {messageId, piece, pieceCount, payload} = MessagePiece.read(event.data);
     if (piece == 0 && pieceCount == 1) {
-      return Rpc.read(new Uint8Array(await decrypt(payload)));
+      return Rpc.read(await decrypt(payload));
     }
     const buffer = mapGet(buffers, messageId, { seen: 0, pieces: [] });
     buffer.pieces[piece] = payload;
     buffer.seen++;
     if (buffer.seen == pieceCount) {
       buffers.delete(messageId);
-      return Rpc.read(new Uint8Array(await decrypt(concatArrays(buffer.pieces))));
+      return Rpc.read(await decrypt(concatArrays(buffer.pieces)));
     } else {
       return null;
     }
@@ -79,18 +80,18 @@ async function Stub({pc, channel}, key, methods) {
     const handler = handlers.get(method);
     if (!handler) { throw 'unknown method: ' + method }
     if (type == Rpc.REQUEST) {
-      const req = handler.request.read(payload);
+      const req = handler.request.read(payload.buffer);
       const resp = await handler.execute(req);
-      sendParts({
+      const respLength = sendParts({
         method, id,
         type: Rpc.RESPONSE,
-        payload: handler.response.write(resp),
+        payload: new Uint8Array(handler.response.write(resp)),
       });
-      console.log('[rpc] server: ', method, 'req', req, '-> resp', resp);
+      console.log('[rpc] server: ', method, 'req', req, '-> resp', await respLength, resp);
     } else if (type == Rpc.RESPONSE) {
-      const resp = handler.response.read(payload);
+      const resp = handler.response.read(payload.buffer);
       const callback = mapRemove(inflight, id);
-      console.log('[rpc] client: ', method, 'req', callback.req, '-> ', resp);
+      console.log('[rpc] client: ', method, 'req', await callback.reqLength, callback.req, '-> ', resp);
       callback.resolve(resp);
     }
   }
@@ -99,12 +100,12 @@ async function Stub({pc, channel}, key, methods) {
   for (let [method, [request, response, execute]] of Object.entries(methods)) {
     stub[method] = req => new Promise((resolve, reject) => {
       const id = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
-      inflight.set(id, {resolve, reject, req});
-      sendParts({
+      const reqLength = sendParts({
         method, id,
         type: Rpc.REQUEST,
-        payload: request.write(req),
+        payload: new Uint8Array(request.write(req)),
       });
+      inflight.set(id, {resolve, reject, req, reqLength});
     });
     handlers.set(method, {request, response, execute});
   }

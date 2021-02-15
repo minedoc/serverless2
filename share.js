@@ -5,7 +5,8 @@ import {hashBin, promiseFn, join, clockLessThan} from './util.js';
 
 async function Share(changes, settings, onChange, onConflict) {
   const stubs = new Map();
-  async function sendChange(changeBin) {
+  async function sendChange(changeBuffer) {
+    const changeBin = new Uint8Array(changeBuffer);
     const hash = await hashBin(changeBin);
     changes.addChange(hash, changeBin);
   }
@@ -75,7 +76,7 @@ async function Share(changes, settings, onChange, onConflict) {
     stubs.delete(peer.id);
   });
   setInterval(() => {
-    for (const stub of stubs) {
+    for (const [peerId, stub] of stubs) {
       withStubLocked(stub, async () => {
         const resp = await stub.getRecentChanges({cursor: stub.cursor});
         stub.cursor = resp.cursor;
