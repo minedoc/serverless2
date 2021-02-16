@@ -47,23 +47,38 @@ async function Database(settings) {
     clock.local++;
     return clock;
   }
-  function insert(table, value) {
+
+  function Table(name) {
+    this.name = name;
+    this.data = tables.getTable(name);
+  }
+  // missing: set, clear
+  Table.prototype.get = function get(key) { return this.data.get(key) }
+  Table.prototype.has = function has(key) { return this.data.has(key) }
+  Table.prototype.keys = function keys() { return this.data.keys() }
+  Table.prototype.size = function size() { return this.data.size() }
+  Table.prototype.values = function values() { return this.data.values() }
+  Table.prototype.entries = function entries() { return this.data.entries() }
+  Table.prototype.forEach = function forEach(callback, thisArg) { return this.data.forEach(callback, thisArg) }
+  Table.prototype[Symbol.iterator] = Table.prototype.entries;
+  Table.prototype.insert = function insert(value) {
     const clock = getNextClock();
     const rowId = randomId();
-    tables.setValue(table, rowId, clock, value);
-    share.sendChange(Change.write(Update.wrap({clock, table, rowId, value})));
+    tables.setValue(this.name, rowId, clock, value);
+    share.sendChange(Change.write(Update.wrap({clock, table: this.name, rowId, value})));
     return rowId;
-  }
-  function update(table, rowId, value) {
+  };
+  Table.prototype.update = function update(rowId, value) {
     const clock = getNextClock();
-    tables.setValue(table, rowId, clock, value);
-    share.sendChange(Change.write(Update.wrap({clock, table, rowId, value})));
+    tables.setValue(this.name, rowId, clock, value);
+    share.sendChange(Change.write(Update.wrap({clock, table: this.name, rowId, value})));
   }
-  function remove(table, rowId) {
+  Table.prototype.delete = function(table, rowId) {
     const clock = getNextClock();
-    tables.removeRow(table, rowId, clock);
-    share.sendChange(Change.write(Delete.wrap({clock, table, rowId})));
+    tables.removeRow(this.name, rowId, clock);
+    share.sendChange(Change.write(Delete.wrap({clock, table: this.name, rowId})));
   }
+
   function state() {
     return changes.changeList.length > 0 ? State.ready : State.empty;
   }
@@ -71,7 +86,7 @@ async function Database(settings) {
     return share.peerCount() > 0 ? Connectivity.online : Connectivity.offline;
   }
 
-  return {table: tables.getTable, insert, update, remove, state, connectivity};
+  return {table: name => new Table(name), state, connectivity};
 }
 
 export {Database, State, Connectivity};
