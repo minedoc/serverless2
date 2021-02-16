@@ -1,6 +1,8 @@
 import {MessagePiece, Rpc} from './types.js';
 import {mapRemove} from './util.js';
 
+const MAX_32 = 2**32 - 1;
+
 async function Stub({pc, channel}, key, methods) {
   const chunkSize = 60000; // 64k limit
   const inflight = new Map();
@@ -25,7 +27,7 @@ async function Stub({pc, channel}, key, methods) {
   const sendParts = async data => {
     const encrypted = await encrypt(Rpc.write(data));
     const pieceCount = Math.ceil(encrypted.byteLength / chunkSize);
-    const messageId = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
+    const messageId = Math.floor(Math.random() * MAX_32);
     for (let piece=0, offset=0; piece < pieceCount; piece++, offset+=chunkSize) {
       channel.send(MessagePiece.write({
         messageId, piece, pieceCount,
@@ -99,7 +101,7 @@ async function Stub({pc, channel}, key, methods) {
   const stub = {};
   for (let [method, [request, response, execute]] of Object.entries(methods)) {
     stub[method] = req => new Promise((resolve, reject) => {
-      const id = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
+      const id = Math.floor(Math.random() * MAX_32);
       const reqLength = sendParts({
         method, id,
         type: Rpc.REQUEST,

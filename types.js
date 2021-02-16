@@ -1,15 +1,15 @@
-import {message, repeated, string, json, binary, int, oneof} from './binary.js';
+import {message, repeated, string, json, binary, uint32, oneof} from './binary.js';
 
 const MessagePiece = message('MessagePiece', {
-  messageId: int(1),
-  piece: int(2),
-  pieceCount: int(3),
+  messageId: uint32(1),
+  piece: uint32(2),
+  pieceCount: uint32(3),
   payload: binary(4)
 });
 
 const Rpc = message('Rpc', {
-  type: int(1),
-  id: int(2),
+  type: uint32(1),
+  id: uint32(2),
   method: string(3),
   payload: binary(4),
 });
@@ -17,9 +17,9 @@ Rpc.REQUEST = 1;
 Rpc.RESPONSE = 2;
 
 const Clock = message('Clock', {
-  global: int(1),
-  site: int(2),
-  local: int(3),
+  global: uint32(1),
+  site: uint32(2),
+  local: uint32(3),
 });
 
 const Update = message('Update', {
@@ -43,16 +43,16 @@ const GetUnseenChangesReq = message('GetUnseenChangesReq', {
 
 const GetUnseenChangesResp = message('GetUnseenChangesResp', {
   changes: repeated(binary, 1),  // binary Change to allow hashing
-  cursor: int(2),
+  cursor: uint32(2),
 });
 
 const GetRecentChangesReq = message('GetRecentChangesReq', {
-  cursor: int(1),
+  cursor: uint32(1),
 });
 
 const GetRecentChangesResp = message('GetRecentChangesResp', {
   changes: repeated(binary, 1),  // binary Change to allow hashing
-  cursor: int(2),
+  cursor: uint32(2),
 });
 
 export {MessagePiece, Rpc, Update, Delete, Change, GetUnseenChangesReq, GetUnseenChangesResp, GetRecentChangesReq, GetRecentChangesResp};

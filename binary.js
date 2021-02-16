@@ -8,47 +8,85 @@ const id = x => x;
 
 function write(val) {
   const result = new ArrayBuffer(this.writeTo(val, null, 0));
-  this.writeTo(val, new DataView(result), 0);
+  this.writeTo(val, new Uint8Array(result), 0);
   return result;
 }
 
 function read(buffer) {
   if (!(buffer instanceof ArrayBuffer)) { throw 'expected ArrayBuffer got: ' + (typeof buffer) }
-  return this.readFrom(new DataView(buffer), 0)[0];
+  return this.readFrom(new Uint8Array(buffer), 0)[0];
 }
 
-function number(check, toRaw, fromRaw) {
+const HI = 0x80;
+const LO = 0x7F;
+const MAX_32 = 0xFFFFFFFF;
+const uint32 = proto({
+  write, read,
+  readFrom(bytes, offset) {
+    var result = 0;
+    for (var shift=0; bytes[offset] & HI; offset++, shift+=7) {
+      result |= (bytes[offset] & ~HI) << shift;
+    }
+    result |= bytes[offset] << shift;
+    return [result >>> 0, offset + 1];
+  },
+  writeTo(val, bytes, offset, path='') {
+    if (!Number.isSafeInteger(val) || val < 0 || val > MAX_32) { throw path + ' is not unsigned integer'; }
+    if (bytes) {
+      for (; val > HI; val >>>= 7, offset++) {
+        bytes[offset] = (val & LO) | HI;
+      }
+      bytes[offset] = val & LO;
+    } else {
+      for (; val > HI; val >>>= 7, offset++) {
+      }
+    }
+    return offset + 1;
+  }
+});
+
+const bool = proto({
+  write, read,
+  readFrom(bytes, offset) {
+    var [val, offset] = uint32.readFrom(bytes, offset);
+    return [val == 1, offset];
+  },
+  writeTo(val, bytes, offset, path='') {
+    return uint32.writeTo(val ? 1 : 0, bytes, offset, path);
+  }
+});
+
+function number(check) {
   return proto({
     write, read,
-    readFrom(view, offset) {
-      return [fromRaw(view.getFloat64(offset)), offset + 8];
+    readFrom(bytes, offset) {
+      return [new DataView(bytes.buffer).getFloat64(offset), offset + 8];
     },
-    writeTo(val, view, offset, path='') {
+    writeTo(val, bytes, offset, path='') {
       if (!check(val)) { throw path + ' is not number'; }
-      if (view) {
-        view.setFloat64(offset, toRaw(val));
+      if (bytes) {
+        new DataView(bytes.buffer).setFloat64(offset, val);
       }
       return offset + 8;
     }
   });
 }
-const int = number(x => Number.isSafeInteger(x), id, id);
-const float = number(x => typeof x == 'number' && Number.isNaN(val), id, id);
-const bool = number(x => typeof x == 'boolean', x => x ? 1 : 0, x => x == 1);
+const int = number(x => Number.isSafeInteger(x));
+const float = number(x => typeof x == 'number' && Number.isNaN(val));
 
 function measured(check, typeName, fromBytes, toBytes) {
   return proto({
     write, read,
-    readFrom(view, offset) {
-      const [len, end] = int.readFrom(view, offset);
-      return [fromBytes(new Uint8Array(view.buffer, end, len)), end + len];
+    readFrom(bytes, offset) {
+      const [len, end] = uint32.readFrom(bytes, offset);
+      return [fromBytes(new Uint8Array(bytes.buffer, end, len)), end + len];
     },
-    writeTo(val, view, offset, path='') {
+    writeTo(val, bytes, offset, path='') {
       if (!check(val)) { throw path + ' wrong type - expected: ' + typeName; }
-      const bytes = toBytes(val), length = bytes.byteLength;
-      offset = int.writeTo(length, view, offset, path + '.$measuredLength');
-      if (view) {
-        new Uint8Array(view.buffer, offset).set(bytes);
+      const serialized = toBytes(val), length = serialized.byteLength;
+      offset = uint32.writeTo(length, bytes, offset, path + '.$measuredLength');
+      if (bytes) {
+        bytes.set(serialized, offset);
       }
       return offset + length;
     },
@@ -67,26 +105,26 @@ function message(name, fields) {
   }
   const message = proto({
     write, read,
-    readFrom(view, offset) {
+    readFrom(bytes, offset) {
       var result = {}, id, field;
-      while (offset < view.byteLength) {
-        [id, offset] = int.readFrom(view, offset);
+      while (offset < bytes.byteLength) {
+        [id, offset] = uint32.readFrom(bytes, offset);
         if (id == MESSAGE_END) {
           return [result, offset];
         } else if (field = fieldById.get(id)) {
-          [result[field.name], offset] = field.readFrom(view, offset);
+          [result[field.name], offset] = field.readFrom(bytes, offset);
         }
       }
       throw 'message did not terminate';
     },
-    writeTo(val, view, offset, path=name) {
+    writeTo(val, bytes, offset, path=name) {
       for (const [name, field] of Object.entries(val)) {
         if (name == TYPE_FIELD) { continue; }
         if (!fields.hasOwnProperty(name)) { throw path + ' unknown field: ' + name; }
-        offset = int.writeTo(fields[name].id, view, offset, path + '.' + '$messageFieldId');
-        offset = fields[name].writeTo(val[name], view, offset, path + '.' + name);
+        offset = uint32.writeTo(fields[name].id, bytes, offset, path + '.' + '$messageFieldId');
+        offset = fields[name].writeTo(val[name], bytes, offset, path + '.' + name);
       }
-      return int.writeTo(MESSAGE_END, view, offset, path + '.$messageEnd');
+      return uint32.writeTo(MESSAGE_END, bytes, offset, path + '.$messageEnd');
     },
     wrap(val) {
       return Type(message, val);
@@ -99,20 +137,20 @@ function message(name, fields) {
 function repeated(field, id) {
   return proto({
     write, read,
-    readFrom(view, offset) {
+    readFrom(bytes, offset) {
       var result = [], count, val;
-      [count, offset] = int.readFrom(view, offset);
+      [count, offset] = uint32.readFrom(bytes, offset);
       for (var i = 0; i < count; i++) {
-        if (offset >= view.byteLength) { throw 'repeated did not terminate'; }
-        [val, offset] = field.readFrom(view, offset);
+        if (offset >= bytes.byteLength) { throw 'repeated did not terminate'; }
+        [val, offset] = field.readFrom(bytes, offset);
         result.push(val);
       }
       return [result, offset];
     },
-    writeTo(val, view, offset, path='') {
-      offset = int.writeTo(val.length, view, offset, path + '.$repeatedCount');
+    writeTo(val, bytes, offset, path='') {
+      offset = uint32.writeTo(val.length, bytes, offset, path + '.$repeatedCount');
       for (var i = 0; i < val.length; i++) {
-        offset = field.writeTo(val[i], view, offset, path + '.' + i.toString());
+        offset = field.writeTo(val[i], bytes, offset, path + '.' + i.toString());
       }
       return offset;
     },
@@ -122,17 +160,17 @@ function repeated(field, id) {
 function any(id) {
   return proto({
     write, read,
-    readFrom(view, offset) {
-      const [name, end] = string.readFrom(view, offset);
+    readFrom(bytes, offset) {
+      const [name, end] = string.readFrom(bytes, offset);
       if (!registry.has(name)) { throw 'unknown any: ' + name; }
       const builder = registry.get(name)
-      const [val, end2] = builder.readFrom(view, end);
+      const [val, end2] = builder.readFrom(bytes, end);
       return [Type(builder, val), end2];
     },
-    writeTo(val, view, offset, path='') {
+    writeTo(val, bytes, offset, path='') {
       if (!val[TYPE_FIELD]) { throw path + ' any must be wrapped with Type'; }
-      offset = string.writeTo(val[TYPE_FIELD], view, offset, path + '.$anyName');
-      return registry.get(val[TYPE_FIELD]).writeTo(val, view, offset, path);
+      offset = string.writeTo(val[TYPE_FIELD], bytes, offset, path + '.$anyName');
+      return registry.get(val[TYPE_FIELD]).writeTo(val, bytes, offset, path);
     },
   })(id);
 }
@@ -144,21 +182,21 @@ function Type(builder, val) {
 function oneof(name, types) {
   return proto({
     write, read,
-    readFrom(view, offset) {
-      const [typeIndex, end] = int.readFrom(view, offset);
+    readFrom(bytes, offset) {
+      const [typeIndex, end] = uint32.readFrom(bytes, offset);
       if (typeIndex < 0 || typeIndex >= types.length) { throw 'unknown oneof index: ' + name + '/' + typeIndex; }
-      const [val, end2] = types[typeIndex].readFrom(view, end);
+      const [val, end2] = types[typeIndex].readFrom(bytes, end);
       val.$type = types[typeIndex];
       return [val, end2];
     },
-    writeTo(val, view, offset, path='') {
+    writeTo(val, bytes, offset, path='') {
       if (!val[TYPE_FIELD]) { throw path + ' oneof must be wrapped with Type'; }
       const typeIndex = types.indexOf(val[TYPE_FIELD]);
       if (typeIndex == -1) { throw path + ' must be one of ' + types; }
-      offset = int.writeTo(typeIndex, view, offset, path + '.$oneofType');
-      return val[TYPE_FIELD].writeTo(val, view, offset, path);
+      offset = uint32.writeTo(typeIndex, bytes, offset, path + '.$oneofType');
+      return val[TYPE_FIELD].writeTo(val, bytes, offset, path);
     },
   });
 }
 
-export {message, any, oneof, Type, repeated, string, json, binary, int, float, bool};
+export {message, any, oneof, Type, repeated, string, json, binary, int, uint32, float, bool};
