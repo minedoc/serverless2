@@ -68,7 +68,7 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
       };
     }
   }
-  ws.onopen = async () => {
+  async function sendOffers() {
     const offerCount = 1;
     const request = {
       info_hash: feed,
@@ -77,11 +77,14 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
       uploaded: 0,
       downloaded: 0,
       left: null,
-      event: 'started',  // this should only exist first time
       action: 'announce',
       offers: await makeOffers(offerCount),
     };
     ws.send(JSON.stringify(request));
+  }
+  ws.onopen = function() {
+    sendOffers();
+    setInterval(sendOffers, 30 * 1000);
   };
   ws.onmessage = async e => {
     const data = JSON.parse(e.data);
