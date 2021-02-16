@@ -92,7 +92,7 @@ function measured(check, typeName, fromBytes, toBytes) {
     },
   });
 }
-const binary = measured(x => x instanceof Uint8Array, 'Uint8Array', x => x.slice(), id);
+const binary = measured(x => x instanceof Uint8Array || x instanceof ArrayBuffer, 'binary', x => x.slice().buffer, x => new Uint8Array(x));
 const string = measured(x => typeof x == 'string', 'string', utf8decode, utf8encode);
 const json = measured(x => true, 'json', x => JSON.parse(utf8decode(x)), x => utf8encode(JSON.stringify(x)));
 

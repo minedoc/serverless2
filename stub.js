@@ -82,16 +82,16 @@ async function Stub({pc, channel}, key, methods) {
     const handler = handlers.get(method);
     if (!handler) { throw 'unknown method: ' + method }
     if (type == Rpc.REQUEST) {
-      const req = handler.request.read(payload.buffer);
+      const req = handler.request.read(payload);
       const resp = await handler.execute(req);
       const respLength = sendParts({
         method, id,
         type: Rpc.RESPONSE,
-        payload: new Uint8Array(handler.response.write(resp)),
+        payload: handler.response.write(resp),
       });
       console.log('[rpc] server: ', method, 'req', req, '-> resp', await respLength, resp);
     } else if (type == Rpc.RESPONSE) {
-      const resp = handler.response.read(payload.buffer);
+      const resp = handler.response.read(payload);
       const callback = mapRemove(inflight, id);
       console.log('[rpc] client: ', method, 'req', await callback.reqLength, callback.req, '-> ', resp);
       callback.resolve(resp);
@@ -105,7 +105,7 @@ async function Stub({pc, channel}, key, methods) {
       const reqLength = sendParts({
         method, id,
         type: Rpc.REQUEST,
-        payload: new Uint8Array(request.write(req)),
+        payload: request.write(req),
       });
       inflight.set(id, {resolve, reject, req, reqLength});
     });

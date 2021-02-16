@@ -5,8 +5,7 @@ import {hashBin, promiseFn, join, clockLessThan} from './util.js';
 
 async function Share(changes, settings, onChange, onConflict) {
   const stubs = new Map();
-  async function sendChange(changeBuffer) {
-    const changeBin = new Uint8Array(changeBuffer);
+  async function sendChange(changeBin) {
     const hash = await hashBin(changeBin);
     changes.addChange(hash, changeBin);
   }

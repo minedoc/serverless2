@@ -24,7 +24,7 @@ function Changes(idb) {
     writes.splice(0).map(write => store.put(write));
   }
   function getMissingChanges(other) {
-    const bloomfilter = BloomFilter(other);
+    const bloomfilter = BloomFilter(new Uint8Array(other));
     const missing = [];
     for (const [hash, change] of changeMap.entries()) {
       if (!bloomfilter.has(hash)) {
