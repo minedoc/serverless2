@@ -73,4 +73,25 @@ function clockLessThan(c1, c2) {
       || (c1.site == c2.site && c1.local < c2.local))));
 }
 
-export {hexToByteString, randomChars, mapRemove, hashBin, randomId, promiseFn, join, clockLessThan};
+function checkSimpleValue(x) {
+  const typ = typeof x;
+  if (typ == 'function' || typ == 'symbol' || typ == 'bigint') {
+    throw {error: 'cannot store', value: x};
+  } else if (typ == 'object') {
+    if (x == null) {
+    } else if (Array.isArray(x)) {
+      for (var i=0; i<x.length; i++) {
+        checkSimpleValue(x[i]);
+      }
+    } else if (x.constructor == Object) {
+      for (const [key, value] of Object.entries(x)) {
+        checkSimpleValue(value);
+      }
+    } else {
+      throw {error: 'cannot store', value: x};
+    }
+  }
+  return x;
+}
+
+export {hexToByteString, randomChars, mapRemove, hashBin, randomId, promiseFn, join, clockLessThan, checkSimpleValue};

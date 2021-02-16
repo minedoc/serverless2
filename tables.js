@@ -1,9 +1,16 @@
-import {clockLessThan} from './util.js';
+import {clockLessThan, checkSimpleValue} from './util.js';
 
-function Tables(idb) {
+function Tables(idb, settings) {
   const tables = new Map();
   const clocks = new Map();
   const writes = [];
+
+  const coolant = {
+    get: (x, f) => typeof x[f] === 'object' ? freeze(x[f]) : x[f],
+    set: x => {throw 'Rows are immutable, use table.update to change them'},
+  };
+  const freeze = settings.frozen ? x => new Proxy(x, coolant) : x => x;
+  const validator = settings.validate ? checkSimpleValue : x => x;
 
   function getTable(table) {
     if (!tables.has(table)) {
@@ -23,7 +30,7 @@ function Tables(idb) {
   }
   function setValue(table, rowId, clock, value) {
     if (!clocks.has(rowId) || clockLessThan(clocks.get(rowId), clock)) {
-      getTable(table).set(rowId, value);
+      getTable(table).set(rowId, validator(freeze(value)));
       clocks.set(rowId, clock);
       writes.push({id: [table, rowId], clock, value});
     }
@@ -47,7 +54,7 @@ function Tables(idb) {
       for(const row of req.result) {
         const [table, rowId] = row.id;
         if (!row.removed) {
-          getTable(table).set(rowId, row.value);
+          getTable(table).set(rowId, freeze(row.value));
         }
         clocks.set(rowId, row.clock);
         if (maxClock.global < row.clock.global) {

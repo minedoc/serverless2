@@ -14,7 +14,7 @@ const Connectivity = {
   offline: Symbol('offline'),
 };
 
-/* settings { name, tracker, feed, readKey, createDatabase, } */
+/* settings { name, tracker, feed, readKey, frozen, validate } */
 async function Database(settings) {
   const idb = await new Promise((resolve, reject) => {
     const req = indexedDB.open(settings.name, 1);
@@ -29,7 +29,7 @@ async function Database(settings) {
     req.onerror = () => reject(req.error);
     req.onsuccess = () => resolve(req.result);
   });
-  const [tables, clock] = await Tables(idb);
+  const [tables, clock] = await Tables(idb, settings);
   const changes = await Changes(idb);
   const share = await Share(changes, settings, (hash, change) => {
     if (change.clock.global >= clock.global) {
