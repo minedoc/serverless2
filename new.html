@@ -6,6 +6,13 @@ init();
 
 <pre>
 todo
+  change API?
+    db.table('foo').{insert, get, update, delete}
+  ensure safety
+    freeze values so you can't edit them
+    make sure that you don't put objects into the db
+      yes: string number bool null array object
+      no: functions prototype dates maps
   P4 - convenience functions - createDb(params)-string, openDb(string)
 
 minimal sync
@@ -46,9 +53,9 @@ data model
   tables of lww rows
   API
     table(table)
-    insert(table, value) returns key
-    update(table, key, value)
-    remove(table, key)
+    table(table).insert(value) returns key
+    table(table).update(key, value)
+    table(table).remove(key)
 
 </pre>
 

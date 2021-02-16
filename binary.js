@@ -4,7 +4,6 @@ const proto = (p) => Object.assign((id) => Object.assign(Object.create(p), {id})
 const registry = new Map();
 const utf8encode = x => new TextEncoder().encode(x);
 const utf8decode = x => new TextDecoder().decode(x);
-const id = x => x;
 
 function write(val) {
   const result = new ArrayBuffer(this.writeTo(val, null, 0));
