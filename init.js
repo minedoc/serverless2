@@ -1,5 +1,5 @@
 import {Database} from './database.js';
-import {randomChars} from './util.js';
+import {base64Encode, base64Decode, randomChars} from './util.js';
 
 async function init() {
   const hash = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode('password'));

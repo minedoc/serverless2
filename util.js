@@ -1,4 +1,4 @@
-const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_';
 const randomChar = () => alphabet[Math.floor(alphabet.length * Math.random())];
 function randomChars(length) {
   return Array.from({length}, randomChar).join('');
@@ -6,31 +6,46 @@ function randomChars(length) {
 
 function mapRemove(map, key, value) {
   if (!map.has(key)) {
-    throw 'could not find';
+    throw {error: 'could not find key', key, map};
   }
   const result = map.get(key);
   map.delete(key);
   return result;
 }
 
-async function hashBin(binary) {
-  // strings: Map compares buffers by reference, string keys are easier to read
-  const hash = new Uint16Array(await crypto.subtle.digest('SHA-256', binary));
-  const base = alphabet.length;
-  const out = [];
-  var current = 0;
-  for (var i=0; i<hash.length; i++) {
-    current = current * 65536 + hash[i];
-    const octet = [];
-    while (current >= base) {
-      const remainder = current % base;
-      octet.push(alphabet[remainder]);
-      current = (current - remainder) / base;
-    }
-    out.push(octet);
+function base64Encode(buffer) {
+  const bytes = new Uint8Array(buffer);
+  var out = "";
+  for (var i=0; i<bytes.byteLength; i+=3) {
+    out += alphabet[bytes[i] >> 2];
+    out += alphabet[((bytes[i] & 3) << 4) | (bytes[i + 1] >> 4)];
+    out += alphabet[((bytes[i + 1] & 15) << 2) | (bytes[i + 2] >> 6)];
+    out += alphabet[bytes[i + 2] & 63];
   }
-  out[out.length-1].push(alphabet[current]);
-  return out.flatMap(x => x.reverse()).join('');
+  const remainder = bytes.byteLength % 3;
+  if (remainder > 0) {
+    out = out.slice(0, remainder - 3);
+  }
+  return out;
+}
+
+const inverseAlphabet = new Uint8Array(256);
+for (var i=0; i<alphabet.length; i++) {
+  inverseAlphabet[alphabet.charCodeAt(i)] = i;
+}
+function base64Decode(string) {
+  const out = new Uint8Array(string.length * 0.75);
+  const digits = new Array(string.length);
+  for (var i=0; i<string.length; i++) {
+    digits[i] = inverseAlphabet[string.charCodeAt(i)];
+  }
+  var p=0;
+  for (var i=0; i<string.length; i+=4) {
+    out[p++] = (digits[i] << 2) | (digits[i+1] >> 4);
+    out[p++] = ((digits[i+1] & 15) << 4) | (digits[i+2] >> 2);
+    out[p++] = ((digits[i+2] & 3) << 6) | (digits[i+3] & 63);
+  }
+  return out;
 }
 
 function randomId() {
@@ -86,4 +101,4 @@ function checkSimpleValue(x) {
   return x;
 }
 
-export {randomChars, mapRemove, hashBin, randomId, promiseFn, join, clockLessThan, checkSimpleValue};
+export {randomChars, mapRemove, base64Encode, base64Decode, randomId, promiseFn, join, clockLessThan, checkSimpleValue};

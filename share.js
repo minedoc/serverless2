@@ -1,18 +1,18 @@
 import {Discovery} from './discovery.js';
 import {Stub} from './stub.js';
 import {Change, GetRecentChangesReq, GetRecentChangesResp, GetUnseenChangesReq, GetUnseenChangesResp} from './types.js';
-import {hashBin, promiseFn, join, clockLessThan} from './util.js';
+import {base64Encode, promiseFn, join, clockLessThan} from './util.js';
 
 async function Share(changes, settings, onChange, onConflict) {
   const stubs = new Map();
   async function sendChange(changeBin) {
-    const hash = await hashBin(changeBin);
+    const hash = base64Encode(await crypto.subtle.digest('SHA-256', changeBin));
     changes.addChange(hash, changeBin);
   }
   const peerCount = () => stubs.size;
   function processChanges(c) {
     c.map(async changeBin => {
-      const hash = await hashBin(changeBin);
+      const hash = base64Encode(await crypto.subtle.digest('SHA-256', changeBin));
       if (changes.addChange(hash, changeBin)) {
         onChange(hash, Change.read(changeBin));
       }
