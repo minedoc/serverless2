@@ -2,7 +2,7 @@ import {Changes} from './changes.js';
 import {Share} from './share.js';
 import {Tables} from './tables.js';
 import {Update, Delete, Change} from './types.js';
-import {randomId} from './util.js';
+import {base64Decode, base64Encode, randomChars, randomId} from './util.js';
 
 const State = {
   empty: Symbol('empty'),
@@ -14,10 +14,24 @@ const Connectivity = {
   offline: Symbol('offline'),
 };
 
-/* settings { name, tracker, feed, readKey, frozen, validate } */
-async function Database(settings) {
+function newConnectionString(settings) {
+  return (
+    randomChars(20) +  // feed
+    base64Encode(window.crypto.getRandomValues(new Uint8Array(16)))  // readKey 16 or 32
+  );
+}
+
+async function Database(name, connection, settings={}) {
+  const feed = connection.substr(0, 20);
+  const readKey = await window.crypto.subtle.importKey('raw', base64Decode(connection.substr(20)), {name: 'AES-GCM'}, false, ['encrypt', 'decrypt']);
+  const {
+    tracker = 'wss://tracker.openwebtorrent.com',
+    frozen = true,
+    validate = true,
+    onConflict = x => console.log('conflict found', x),
+  } = settings;
   const idb = await new Promise((resolve, reject) => {
-    const req = indexedDB.open(settings.name, 1);
+    const req = indexedDB.open(name, 1);
     req.onupgradeneeded = () => {
       const db = req.result;
       switch (event.oldVersion) {
@@ -29,9 +43,11 @@ async function Database(settings) {
     req.onerror = () => reject(req.error);
     req.onsuccess = () => resolve(req.result);
   });
-  const [tables, clock] = await Tables(idb, settings);
+  const [tables, clock] = await Tables(idb, frozen, validate);
   const changes = await Changes(idb);
-  const share = await Share(changes, settings, (hash, change) => {
+  const share = await Share(changes, tracker, feed, readKey, onRemoteChange, onConflict);
+
+  function onRemoteChange(hash, change) {
     if (change.clock.global >= clock.global) {
       clock.global = change.clock.global + 1;
       clock.local = 0;
@@ -41,7 +57,7 @@ async function Database(settings) {
     } else if (change.$type == Delete) {
       tables.removeRow(change.table, change.rowId, change.clock);
     }
-  }, settings.onConflict ?? (x => console.log('conflicts found', x)));
+  }
 
   function getNextClock() {
     clock.local++;
@@ -72,11 +88,14 @@ async function Database(settings) {
     const clock = getNextClock();
     tables.setValue(this.name, rowId, clock, value);
     share.sendChange(Change.write(Update.wrap({clock, table: this.name, rowId, value})));
+    return value;
   }
   Table.prototype.delete = function(table, rowId) {
+    const value = this.data.get(rowId);
     const clock = getNextClock();
     tables.removeRow(this.name, rowId, clock);
     share.sendChange(Change.write(Delete.wrap({clock, table: this.name, rowId})));
+    return value;
   }
 
   function state() {
@@ -89,4 +108,4 @@ async function Database(settings) {
   return {table: name => new Table(name), state, connectivity};
 }
 
-export {Database, State, Connectivity};
+export {Database, State, Connectivity, newConnectionString};

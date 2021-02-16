@@ -3,7 +3,7 @@ import {Stub} from './stub.js';
 import {Change, GetRecentChangesReq, GetRecentChangesResp, GetUnseenChangesReq, GetUnseenChangesResp} from './types.js';
 import {base64Encode, promiseFn, join, clockLessThan} from './util.js';
 
-async function Share(changes, settings, onChange, onConflict) {
+async function Share(changes, tracker, feed, readKey, onChange, onConflict) {
   const stubs = new Map();
   async function sendChange(changeBin) {
     const hash = base64Encode(await crypto.subtle.digest('SHA-256', changeBin));
@@ -52,9 +52,9 @@ async function Share(changes, settings, onChange, onConflict) {
       stub.syncing = false;
     }
   }
-  const discovery = Discovery(settings.tracker, settings.feed, async peer => {
+  const discovery = Discovery(tracker, feed, async peer => {
     const changeConflict = ChangeConflict();
-    const stub = await Stub(peer, settings.readKey, {
+    const stub = await Stub(peer, readKey, {
       getRecentChanges: [GetRecentChangesReq, GetRecentChangesResp, req => {
         return {changes: changes.changeList.slice(req.cursor), cursor: changes.changeList.length};
       }],

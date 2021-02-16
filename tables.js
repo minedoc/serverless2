@@ -1,6 +1,6 @@
 import {clockLessThan, checkSimpleValue} from './util.js';
 
-function Tables(idb, settings) {
+function Tables(idb, frozen, validate) {
   const tables = new Map();
   const clocks = new Map();
   const writes = [];
@@ -9,8 +9,8 @@ function Tables(idb, settings) {
     get: (x, f) => typeof x[f] === 'object' ? freeze(x[f]) : x[f],
     set: x => {throw 'Rows are immutable, use table.update to change them'},
   };
-  const freeze = settings.frozen ? x => new Proxy(x, coolant) : x => x;
-  const validator = settings.validate ? checkSimpleValue : x => x;
+  const freeze = frozen ? x => new Proxy(x, coolant) : x => x;
+  const validator = validate ? checkSimpleValue : x => x;
 
   function getTable(table) {
     if (!tables.has(table)) {
