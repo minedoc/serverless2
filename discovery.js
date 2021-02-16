@@ -1,4 +1,4 @@
-import {randomChars, hexToByteString, mapRemove} from './util.js';
+import {randomChars, mapRemove} from './util.js';
 
 // TODO: expire pendingStubs and almost connected
 
@@ -6,8 +6,7 @@ function randomPeerId() {
   return '-OH0001-' + randomChars(12);
 }
 
-function Discovery(url, infoHash, onPeer, onPeerDisconnect) {
-  // TODO: make infoHash = hash(publicKey)
+function Discovery(url, feed, onPeer, onPeerDisconnect) {
   const ws = new WebSocket(url);
   const myPeerId = randomPeerId();
   const pendingPeers = new Map();
@@ -72,7 +71,7 @@ function Discovery(url, infoHash, onPeer, onPeerDisconnect) {
   ws.onopen = async () => {
     const offerCount = 1;
     const request = {
-      info_hash: hexToByteString(infoHash),
+      info_hash: feed,
       peer_id: myPeerId,
       numwant: offerCount,
       uploaded: 0,

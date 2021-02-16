@@ -1,11 +1,3 @@
-function hexToByteString(hex) {
-  var bytes = [];
-  for (var c = 0; c < hex.length; c += 2) {
-    bytes.push(String.fromCharCode(parseInt(hex.substr(c, 2), 16)));
-  }
-  return bytes.join('');
-}
-
 const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const randomChar = () => alphabet[Math.floor(alphabet.length * Math.random())];
 function randomChars(length) {
@@ -94,4 +86,4 @@ function checkSimpleValue(x) {
   return x;
 }
 
-export {hexToByteString, randomChars, mapRemove, hashBin, randomId, promiseFn, join, clockLessThan, checkSimpleValue};
+export {randomChars, mapRemove, hashBin, randomId, promiseFn, join, clockLessThan, checkSimpleValue};
