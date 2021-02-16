@@ -32,12 +32,12 @@ const uint32 = proto({
   writeTo(val, bytes, offset, path='') {
     if (!Number.isSafeInteger(val) || val < 0 || val > MAX_32) { throw path + ' is not unsigned integer'; }
     if (bytes) {
-      for (; val > HI; val >>>= 7, offset++) {
+      for (; val > LO; val >>>= 7, offset++) {
         bytes[offset] = (val & LO) | HI;
       }
       bytes[offset] = val & LO;
     } else {
-      for (; val > HI; val >>>= 7, offset++) {
+      for (; val > LO; val >>>= 7, offset++) {
       }
     }
     return offset + 1;
