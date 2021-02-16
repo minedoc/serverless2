@@ -61,7 +61,7 @@ async function Database(name, connection, settings={}) {
 
   function getNextClock() {
     clock.local++;
-    return clock;
+    return {...clock};
   }
 
   function Table(name) {

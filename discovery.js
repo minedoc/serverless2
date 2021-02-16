@@ -6,15 +6,17 @@ function randomPeerId() {
   return '-OH0001-' + randomChars(12);
 }
 
+const connectionSettings = {
+  iceServers: [{urls:["stun:stun.l.google.com:19302"]}],
+};
+
 function Discovery(url, feed, onPeer, onPeerDisconnect) {
   const ws = new WebSocket(url);
   const myPeerId = randomPeerId();
   const pendingPeers = new Map();
   const peers = new Map();
   async function makeOffer() {
-    const pc = new RTCPeerConnection({
-      iceServers: [{urls:["stun:stun.l.google.com:19302"]}],
-    });
+    const pc = new RTCPeerConnection(connectionSettings);
     const channel = pc.createDataChannel('BUNDLE', {negotiated: true, id: 0});
     const $description = new Promise(function(resolve, reject) {
       pc.onicecandidate = e => {
@@ -96,11 +98,18 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
       await peer.pc.setRemoteDescription(new RTCSessionDescription(data.answer));
       savePeer(data.peer_id, peer);
     } else if (data.offer) {
-      const pc = new RTCPeerConnection();
+      const pc = new RTCPeerConnection(connectionSettings);
       const channel = pc.createDataChannel('BUNDLE', {negotiated: true, id: 0});
       await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
+      const $description = new Promise(function(resolve, reject) {
+        pc.onicecandidate = e => {
+          if (!e.candidate) {
+            resolve(pc.localDescription);
+          }
+        }
+      });
       savePeer(data.peer_id, {pc, channel});
       ws.send(JSON.stringify({
         info_hash: data.info_hash,
@@ -108,7 +117,7 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
         peer_id: myPeerId,
         to_peer_id: data.peer_id,
         action: 'announce',
-        answer: answer,
+        answer: await $description,
       }));
     }
   };
