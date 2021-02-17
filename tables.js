@@ -58,11 +58,7 @@ function Tables(idb, frozen, validate) {
         }
         clocks.set(rowId, row.clock);
         if (maxClock.global <= row.clock.global) {
-<<<<<<< HEAD
           maxClock.global = row.clock.global + 1;
-=======
-          maxClock = row.clock.global + 1;
->>>>>>> f971750963211157ada983bc0830ac466af91cf8
         }
       }
       setInterval(persist, 500);
