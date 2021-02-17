@@ -11,6 +11,7 @@ const connectionSettings = {
 };
 
 const OFFER_TIMEOUT = 60 * 1000;
+const OFFER_INTERVAL = 60 * 1000;
 
 function Discovery(url, feed, onPeer, onPeerDisconnect) {
   const ws = new WebSocket(url);
@@ -40,7 +41,6 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
     const id = randomChars(20);
     pendingPeers.set(id, {pc, channel});
     setTimeout(() => expireOffer(id, pc), OFFER_TIMEOUT);
-    console.log('sending offer', description);
     return {
       offer_id: id,
       offer: description,
@@ -54,33 +54,24 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
     return Promise.all(offers);
   }
   function savePeer(peerId, peer) {
-    const save = () => {
-      peer.id = peerId;
-      peers.set(peerId, peer);
-      peer.pc.onconnectionstatechange = event => {
-        if (peer.pc.connectionState != 'connected' && peers.has(peerId)) {
-          onPeerDisconnect(peer);
-          peers.delete(peerId);
-        }
-      };
-      peer.channel.onclose = event => {
-        if (peers.has(peerId)) {
-          onPeerDisconnect(peer);
-          peers.delete(peerId);
-        }
-      };
-      console.log('added a peer: ', peer);
-      onPeer(peer);
-    };
-    if (peer.channel.readyState == 'open') {
-      save();
-    } else {
-      peer.channel.onopen = event => {
-        if (peer.channel.readyState == 'open') {
-          save();
-        }
-      };
+    function maybeSave() {
+      if (peer.channel.readyState == 'open' && !peers.has(peerId)) {
+        peers.set(peerId, peer);
+        console.log('added a peer: ', peer);
+        onPeer(peer);
+      }
     }
+    function maybeRemove() {
+      if (peer.channel.readyState != 'open' && peers.has(peerId)) {
+        onPeerDisconnect(peer);
+        peers.delete(peerId);
+      }
+    }
+    peer.id = peerId;
+    peer.channel.onopen = maybeSave;
+    peer.pc.onconnectionstatechange = maybeRemove;
+    peer.channel.onclose = maybeRemove;
+    maybeSave();
   }
   async function sendOffers() {
     const offerCount = 1;
@@ -98,7 +89,7 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
   }
   ws.onopen = function() {
     sendOffers();
-    setInterval(sendOffers, 30 * 1000);
+    setInterval(sendOffers, OFFER_INTERVAL);
   };
   ws.onmessage = async e => {
     const data = JSON.parse(e.data);
@@ -125,7 +116,6 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
       setTimeout(() => expireOffer('', pc), OFFER_TIMEOUT);
       savePeer(data.peer_id, {pc, channel});
       const description = await $description;
-      console.log('sending answer', description);
       ws.send(JSON.stringify({
         info_hash: data.info_hash,
         offer_id: data.offer_id,
