@@ -57,7 +57,7 @@ function Tables(idb, frozen, validate) {
           getTable(table).set(rowId, freeze(row.value));
         }
         clocks.set(rowId, row.clock);
-        if (maxClock.global < row.clock.global) {
+        if (maxClock.global <= row.clock.global) {
           maxClock = row.clock.global + 1;
         }
       }
