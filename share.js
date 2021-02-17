@@ -5,14 +5,14 @@ import {base64Encode, promiseFn, join, clockLessThan} from './util.js';
 
 async function Share(changes, tracker, feed, readKey, onChange, onConflict) {
   const stubs = new Map();
-  async function saveLocalChange(changeBin) {
-    const hash = base64Encode(await crypto.subtle.digest('SHA-256', changeBin));
-    changes.saveChange(hash, changeBin);
+  async function saveLocalChange(change) {
+    const hash = base64Encode(await crypto.subtle.digest('SHA-256', change));
+    changes.saveChange({hash, change, local: true});
   }
-  async function applyRemoteChange(changeBin) {
-    const hash = base64Encode(await crypto.subtle.digest('SHA-256', changeBin));
-    if (changes.saveChange(hash, changeBin)) {
-      onChange(hash, Change.read(changeBin));
+  async function applyRemoteChange(change) {
+    const hash = base64Encode(await crypto.subtle.digest('SHA-256', change));
+    if (changes.saveChange({hash, change, local: false})) {
+      onChange(hash, Change.read(change));
     }
   }
   function byRowId(changes) {
@@ -25,20 +25,18 @@ async function Share(changes, tracker, feed, readKey, onChange, onConflict) {
     return map;
   }
   function ChangeConflict() {
-    const [fromLocalPromise, fromLocal] = promiseFn();
-    const [fromRemotePromise, fromRemote]  = promiseFn();
+    const [$local, fromLocal] = promiseFn();
+    const [$remote, fromRemote]  = promiseFn();
     (async function() {
-      const fromLocal = (await fromLocalPromise).map(x => Change.read(x));
-      const fromRemote = (await fromRemotePromise).map(x => Change.read(x));
+      const locals = (await $local).map(blob => Change.read(blob.change));
+      const remotes = (await $remote).map(change => Change.read(change));
       const conflicts = [];
-      join(byRowId(fromLocal), byRowId(fromRemote), (local, remote) => {
+      join(byRowId(locals), byRowId(remotes), (local, remote) => {
         if (clockLessThan(local.clock, remote.clock)) {
           conflicts.push(local);
         }
       });
-      if (conflicts.length > 0) {
-        onConflict(conflicts);
-      }
+      conflicts.map(conflict => onConflict(conflict));
     } ());
     return {fromLocal, fromRemote};
   }
@@ -53,12 +51,18 @@ async function Share(changes, tracker, feed, readKey, onChange, onConflict) {
     const changeConflict = ChangeConflict();
     const stub = await Stub(peer, readKey, {
       getRecentChanges: [GetRecentChangesReq, GetRecentChangesResp, req => {
-        return {changes: changes.changeList.slice(req.cursor), cursor: changes.changeList.length};
+        return {
+          changes: changes.changeList.slice(req.cursor).map(b => b.change),
+          cursor: changes.changeList.length
+        };
       }],
       getUnseenChanges: [GetUnseenChangesReq, GetUnseenChangesResp, req => {
         const missing = changes.getMissingChanges(req.bloomFilter);
-        changeConflict.fromLocal(missing);
-        return {changes: missing, cursor: changes.changeList.length};
+        changeConflict.fromLocal(missing.filter(blob => blob.local));
+        return {
+          changes: missing.map(blob => blob.change),
+          cursor: changes.changeList.length
+        };
       }],
     });
     withStubLocked(stub, async () => {
