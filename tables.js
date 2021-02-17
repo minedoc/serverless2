@@ -1,15 +1,11 @@
-import {clockLessThan, checkSimpleValue} from './util.js';
+import {clockLessThan, checkSimpleValue, freeze} from './util.js';
 
 function Tables(idb, frozen, validate) {
   const tables = new Map();
   const clocks = new Map();
-  const writes = [];
+  let writes = [];
 
-  const coolant = {
-    get: (x, f) => typeof x[f] === 'object' ? freeze(x[f]) : x[f],
-    set: x => {throw 'Rows are immutable, use table.update to change them'},
-  };
-  const freeze = frozen ? x => new Proxy(x, coolant) : x => x;
+  const readOnly = frozen ? freeze : x => x;
   const validator = validate ? checkSimpleValue : x => x;
 
   function getTable(table) {
@@ -20,17 +16,18 @@ function Tables(idb, frozen, validate) {
   }
   function persist() {
     const store = idb.transaction('tables', 'readwrite').objectStore('tables');
-    writes.splice(0).map(write => {
+    writes.map(write => {
       store.get(write.id).onsuccess = fetch => {
         if (fetch.result == undefined || clockLessThan(fetch.result.clock, clock)) {
           store.put(write);
         }
       };
     });
+    writes = [];
   }
   function setValue(table, rowId, clock, value) {
     if (!clocks.has(rowId) || clockLessThan(clocks.get(rowId), clock)) {
-      getTable(table).set(rowId, validator(freeze(value)));
+      getTable(table).set(rowId, validator(readOnly(value)));
       clocks.set(rowId, clock);
       writes.push({id: [table, rowId], clock, value});
     }
@@ -54,7 +51,7 @@ function Tables(idb, frozen, validate) {
       for(const row of req.result) {
         const [table, rowId] = row.id;
         if (!row.removed) {
-          getTable(table).set(rowId, freeze(row.value));
+          getTable(table).set(rowId, readOnly(row.value));
         }
         clocks.set(rowId, row.clock);
         if (maxClock.global <= row.clock.global) {

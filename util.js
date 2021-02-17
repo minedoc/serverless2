@@ -101,4 +101,15 @@ function checkSimpleValue(x) {
   return x;
 }
 
-export {randomChars, mapRemove, base64Encode, base64Decode, randomId, promiseFn, join, clockLessThan, checkSimpleValue};
+function freeze(x) {
+  if (typeof x == 'object') {
+    return x === null ? null : new Proxy(x, {
+      get: (x, f) => freeze(x[f]),
+      set: x => {throw 'Rows are immutable, use table.update to change them'},
+    });
+  } else {
+    return x;
+  }
+}
+
+export {randomChars, mapRemove, base64Encode, base64Decode, randomId, promiseFn, join, clockLessThan, checkSimpleValue, freeze};
