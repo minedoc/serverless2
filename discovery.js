@@ -37,21 +37,13 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
       }
     });
     await pc.setLocalDescription(await pc.createOffer());
-    const description = await $description;
     const id = randomChars(20);
     pendingPeers.set(id, {pc, channel});
     setTimeout(() => expireOffer(id, pc), OFFER_TIMEOUT);
     return {
       offer_id: id,
-      offer: description,
+      offer: await $description,
     }
-  }
-  function makeOffers(count) {
-    const offers = [];
-    for (var i=0; i<count; i++) {
-      offers.push(makeOffer());
-    }
-    return Promise.all(offers);
   }
   function savePeer(peerId, peer) {
     function maybeSave() {
@@ -83,7 +75,7 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
       downloaded: 0,
       left: null,
       action: 'announce',
-      offers: await makeOffers(offerCount),
+      offers: await Promise.all(new Array(offerCount).fill(0).map(makeOffer)),
     };
     ws.send(JSON.stringify(request));
   }
