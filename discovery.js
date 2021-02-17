@@ -54,9 +54,10 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
       }
     }
     function maybeRemove() {
-      if (peer.channel.readyState != 'open' && peers.has(peerId)) {
-        onPeerDisconnect(peer);
+      if ((peer.pc.connectionState != 'connected' ||  peer.channel.readyState != 'open') && peers.has(peerId)) {
         peers.delete(peerId);
+        console.log('removed a peer: ', peer);
+        onPeerDisconnect(peer);
       }
     }
     peer.id = peerId;
@@ -86,7 +87,7 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
   ws.onmessage = async e => {
     const data = JSON.parse(e.data);
     if (peers.has(data.peer_id)) {
-      return console.log('ignoring seen peer ', data.peer_id);
+      return;
     }
     if (data.answer) {
       const peer = mapRemove(pendingPeers, data.offer_id);
