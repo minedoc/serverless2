@@ -81,20 +81,20 @@ async function Database(name, connection, settings={}) {
     const clock = getNextClock();
     const rowId = randomId();
     tables.setValue(this.name, rowId, clock, value);
-    share.sendChange(Change.write(Update.wrap({clock, table: this.name, rowId, value})));
+    share.saveLocalChange(Change.write(Update.wrap({clock, table: this.name, rowId, value})));
     return rowId;
   };
   Table.prototype.update = function update(rowId, value) {
     const clock = getNextClock();
     tables.setValue(this.name, rowId, clock, value);
-    share.sendChange(Change.write(Update.wrap({clock, table: this.name, rowId, value})));
+    share.saveLocalChange(Change.write(Update.wrap({clock, table: this.name, rowId, value})));
     return value;
   }
-  Table.prototype.delete = function(table, rowId) {
+  Table.prototype.delete = function(rowId) {
     const value = this.data.get(rowId);
     const clock = getNextClock();
     tables.removeRow(this.name, rowId, clock);
-    share.sendChange(Change.write(Delete.wrap({clock, table: this.name, rowId})));
+    share.saveLocalChange(Change.write(Delete.wrap({clock, table: this.name, rowId})));
     return value;
   }
 

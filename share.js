@@ -5,18 +5,15 @@ import {base64Encode, promiseFn, join, clockLessThan} from './util.js';
 
 async function Share(changes, tracker, feed, readKey, onChange, onConflict) {
   const stubs = new Map();
-  async function sendChange(changeBin) {
+  async function saveLocalChange(changeBin) {
     const hash = base64Encode(await crypto.subtle.digest('SHA-256', changeBin));
     changes.addChange(hash, changeBin);
   }
-  const peerCount = () => stubs.size;
-  function processChanges(c) {
-    c.map(async changeBin => {
-      const hash = base64Encode(await crypto.subtle.digest('SHA-256', changeBin));
-      if (changes.addChange(hash, changeBin)) {
-        onChange(hash, Change.read(changeBin));
-      }
-    });
+  async function applyRemoteChange(changeBin) {
+    const hash = base64Encode(await crypto.subtle.digest('SHA-256', changeBin));
+    if (changes.addChange(hash, changeBin)) {
+      onChange(hash, Change.read(changeBin));
+    }
   }
   function byRowId(changes) {
     const map = new Map();
@@ -69,7 +66,7 @@ async function Share(changes, tracker, feed, readKey, onChange, onConflict) {
       const resp = await stub.getUnseenChanges({bloomFilter: changes.getBloomFilter()});
       changeConflict.fromRemote(resp.changes);
       stub.cursor = resp.cursor;
-      processChanges(resp.changes);
+      resp.changes.map(change => applyRemoteChange(change));
     });
   }, peer => {
     stubs.delete(peer.id);
@@ -79,11 +76,11 @@ async function Share(changes, tracker, feed, readKey, onChange, onConflict) {
       withStubLocked(stub, async () => {
         const resp = await stub.getRecentChanges({cursor: stub.cursor});
         stub.cursor = resp.cursor;
-        processChanges(resp.changes);
+        resp.changes.map(change => applyRemoteChange(change));
       });
     }
   }, 1*1000);
-  return {sendChange, peerCount}
+  return {saveLocalChange, peerCount: () => stubs.size}
 }
 
 export {Share};
