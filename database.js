@@ -64,38 +64,40 @@ async function Database(name, connection, settings={}) {
     return {...clock};
   }
 
-  function Table(name) {
-    this.name = name;
-    this.data = tables.getTable(name);
-  }
-  // missing: set, clear
-  Table.prototype.get = function get(key) { return this.data.get(key) }
-  Table.prototype.has = function has(key) { return this.data.has(key) }
-  Table.prototype.keys = function keys() { return this.data.keys() }
-  Table.prototype.size = function size() { return this.data.size() }
-  Table.prototype.values = function values() { return this.data.values() }
-  Table.prototype.entries = function entries() { return this.data.entries() }
-  Table.prototype.forEach = function forEach(callback, thisArg) { return this.data.forEach(callback, thisArg) }
-  Table.prototype[Symbol.iterator] = Table.prototype.entries;
-  Table.prototype.insert = function insert(value) {
-    const clock = getNextClock();
-    const rowId = randomId();
-    tables.setValue(this.name, rowId, clock, value);
-    share.saveLocalChange(Change.write(Update.wrap({clock, table: this.name, rowId, value})));
-    return rowId;
-  };
-  Table.prototype.update = function update(rowId, value) {
-    const clock = getNextClock();
-    tables.setValue(this.name, rowId, clock, value);
-    share.saveLocalChange(Change.write(Update.wrap({clock, table: this.name, rowId, value})));
-    return value;
-  }
-  Table.prototype.delete = function(rowId) {
-    const value = this.data.get(rowId);
-    const clock = getNextClock();
-    tables.removeRow(this.name, rowId, clock);
-    share.saveLocalChange(Change.write(Delete.wrap({clock, table: this.name, rowId})));
-    return value;
+  function Table(table) {
+    const data = tables.getTable(table);
+    function Table(table) {
+      this.table = table;
+    }
+    // missing methods: set, clear
+    Table.prototype.get = key => data.get(key);
+    Table.prototype.has = key => data.has(key);
+    Table.prototype.keys = x => data.keys();
+    Table.prototype.size = x => data.size();
+    Table.prototype.values = x => data.values();
+    Table.prototype.entries = Table.prototype[Symbol.iterator] = x => data.entries();
+    Table.prototype.forEach = (callback, thisArg) => data.forEach(callback, thisArg);
+    Table.prototype.insert = value => {
+      const clock = getNextClock();
+      const rowId = randomId();
+      tables.setValue(table, rowId, clock, value);
+      share.saveLocalChange(Change.write(Update.wrap({clock, table, rowId, value})));
+      return rowId;
+    };
+    Table.prototype.update = (rowId, value) => {
+      const clock = getNextClock();
+      tables.setValue(table, rowId, clock, value);
+      share.saveLocalChange(Change.write(Update.wrap({clock, table, rowId, value})));
+      return value;
+    };
+    Table.prototype.delete = rowId => {
+      const value = data.get(rowId);
+      const clock = getNextClock();
+      tables.removeRow(table, rowId, clock);
+      share.saveLocalChange(Change.write(Delete.wrap({clock, table, rowId})));
+      return value;
+    };
+    return new Table(table);
   }
 
   function state() {
@@ -105,7 +107,7 @@ async function Database(name, connection, settings={}) {
     return share.peerCount() > 0 ? Connectivity.online : Connectivity.offline;
   }
 
-  return {table: name => new Table(name), state, connectivity};
+  return {table: name => Table(name), state, connectivity};
 }
 
 export {Database, State, Connectivity, newConnectionString};
