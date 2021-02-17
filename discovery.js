@@ -30,7 +30,7 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
     const channel = pc.createDataChannel('BUNDLE', {negotiated: true, id: 0});
     const $description = new Promise(function(resolve, reject) {
       pc.onicecandidate = e => {
-        if (!e.candidate) {
+        if (e.candidate == null) {
           resolve(pc.localDescription);
         }
       }
@@ -40,6 +40,7 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
     const id = randomChars(20);
     pendingPeers.set(id, {pc, channel});
     setTimeout(() => expireOffer(id, pc), OFFER_TIMEOUT);
+    console.log('sending offer', description);
     return {
       offer_id: id,
       offer: description,
@@ -116,20 +117,22 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
       await pc.setLocalDescription(answer);
       const $description = new Promise(function(resolve, reject) {
         pc.onicecandidate = e => {
-          if (!e.candidate) {
+          if (e.candidate == null) {
             resolve(pc.localDescription);
           }
         }
       });
       setTimeout(() => expireOffer('', pc), OFFER_TIMEOUT);
       savePeer(data.peer_id, {pc, channel});
+      const description = await $description;
+      console.log('sending answer', description);
       ws.send(JSON.stringify({
         info_hash: data.info_hash,
         offer_id: data.offer_id,
         peer_id: myPeerId,
         to_peer_id: data.peer_id,
         action: 'announce',
-        answer: await $description,
+        answer: description,
       }));
     }
   };
