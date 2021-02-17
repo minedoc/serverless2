@@ -7,11 +7,11 @@ async function Share(changes, tracker, feed, readKey, onChange, onConflict) {
   const stubs = new Map();
   async function saveLocalChange(changeBin) {
     const hash = base64Encode(await crypto.subtle.digest('SHA-256', changeBin));
-    changes.addChange(hash, changeBin);
+    changes.saveChange(hash, changeBin);
   }
   async function applyRemoteChange(changeBin) {
     const hash = base64Encode(await crypto.subtle.digest('SHA-256', changeBin));
-    if (changes.addChange(hash, changeBin)) {
+    if (changes.saveChange(hash, changeBin)) {
       onChange(hash, Change.read(changeBin));
     }
   }

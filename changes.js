@@ -3,25 +3,25 @@ import {BloomFilter} from './bloomfilter.js';
 function Changes(idb) {
   const changeMap = new Map();
   const changeList = [];
-  const writes = [];
+  const writesToDisk = [];
   let bloomFilter;
-  function addLocal(hash, change) {
-    changeMap.set(hash, change);
-    changeList.push(change);
-    bloomFilter.add(hash);
-  }
-  function addChange(hash, change) {
+  function saveChange(hash, change) {
     if (!changeMap.has(hash)) {
-      addLocal(hash, change);
-      writes.push({hash, change});
+      writeToMemory(hash, change);
+      writesToDisk.push({hash, change});
       return true;
     } else {
       return false;
     }
   }
-  function persist() {
+  function writeToMemory(hash, change) {
+    changeMap.set(hash, change);
+    changeList.push(change);
+    bloomFilter.add(hash);
+  }
+  function writeToDisk() {
     const store = idb.transaction('changes', 'readwrite').objectStore('changes');
-    writes.splice(0).map(write => store.put(write));
+    writesToDisk.splice(0).map(write => store.put(write));
   }
   function getMissingChanges(other) {
     const bloomfilter = BloomFilter(new Uint8Array(other));
@@ -39,10 +39,10 @@ function Changes(idb) {
     req.onsuccess = () => {
       bloomFilter = BloomFilter.fromSize(req.result.length);
       for(const row of req.result) {
-        addLocal(row.hash, row.change);
+        writeToMemory(row.hash, row.change);
       }
-      setInterval(persist, 500);
-      resolve({getBloomFilter: () => bloomFilter.binary, getMissingChanges, addChange, changeList});
+      setInterval(writeToDisk, 500);
+      resolve({getBloomFilter: () => bloomFilter.binary, getMissingChanges, saveChange, changeList});
     }
   });
 }
