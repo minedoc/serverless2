@@ -10,8 +10,8 @@ const connectionSettings = {
   iceServers: [{urls:["stun:stun.l.google.com:19302"]}],
 };
 
-const OFFER_TIMEOUT = 60 * 1000;
 const OFFER_INTERVAL = 60 * 1000;
+const OFFER_TIMEOUT = OFFER_INTERVAL + 10 * 1000;
 
 function Discovery(url, feed, onPeer, onPeerDisconnect) {
   const ws = new WebSocket(url);
@@ -48,22 +48,22 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
   function savePeer(peerId, peer) {
     function maybeSave() {
       if (peer.channel.readyState == 'open' && !peers.has(peerId)) {
+        peer.pc.onconnectionstatechange = maybeRemove;
+        peer.channel.onclose = maybeRemove;
         peers.set(peerId, peer);
-        console.log('added a peer: ', peer);
+        console.log('added a peer:', peerId);
         onPeer(peer);
       }
     }
     function maybeRemove() {
       if ((peer.pc.connectionState != 'connected' ||  peer.channel.readyState != 'open') && peers.has(peerId)) {
         peers.delete(peerId);
-        console.log('removed a peer: ', peer);
+        console.log('removed a peer:', peerId);
         onPeerDisconnect(peer);
       }
     }
     peer.id = peerId;
     peer.channel.onopen = maybeSave;
-    peer.pc.onconnectionstatechange = maybeRemove;
-    peer.channel.onclose = maybeRemove;
     maybeSave();
   }
   async function sendOffers() {
