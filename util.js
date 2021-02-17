@@ -83,7 +83,7 @@ function clockLessThan(c1, c2) {
 function checkSimpleValue(x) {
   const typ = typeof x;
   if (typ == 'function' || typ == 'symbol' || typ == 'bigint') {
-    throw {error: 'cannot store', value: x};
+    throw {error: 'can only store simple values', value: x};
   } else if (typ == 'object') {
     if (x == null) {
     } else if (Array.isArray(x)) {
@@ -95,13 +95,13 @@ function checkSimpleValue(x) {
         checkSimpleValue(value);
       }
     } else {
-      throw {error: 'cannot store', value: x};
+      throw {error: 'can only store ssmple values', value: x};
     }
   }
   return x;
 }
 
-function freeze(x) {
+function freezeProxy(x) {
   if (typeof x == 'object') {
     return x === null ? null : new Proxy(x, {
       get: (x, f) => freeze(x[f]),
@@ -110,6 +110,14 @@ function freeze(x) {
   } else {
     return x;
   }
+}
+
+function freeze(x) {
+  if (typeof x == 'object' && x != null) {
+    Object.freeze(x);
+    Object.keys(x).forEach(p => freeze(x[p]));
+  }
+  return x;
 }
 
 export {randomChars, mapRemove, base64Encode, base64Decode, randomId, promiseFn, join, clockLessThan, checkSimpleValue, freeze};
