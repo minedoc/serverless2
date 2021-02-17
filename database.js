@@ -48,7 +48,7 @@ async function Database(name, connection, settings={}) {
   const share = await Share(changes, tracker, feed, readKey, onRemoteChange, onConflict);
 
   function onRemoteChange(hash, change) {
-    if (change.clock.global >= clock.global) {
+    if (clock.global <= change.clock.global) {
       clock.global = change.clock.global + 1;
       clock.local = 0;
     }
