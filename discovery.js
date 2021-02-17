@@ -10,11 +10,21 @@ const connectionSettings = {
   iceServers: [{urls:["stun:stun.l.google.com:19302"]}],
 };
 
+const OFFER_TIMEOUT = 60 * 1000;
+
 function Discovery(url, feed, onPeer, onPeerDisconnect) {
   const ws = new WebSocket(url);
   const myPeerId = randomPeerId();
   const pendingPeers = new Map();
   const peers = new Map();
+  function expireOffer(id, pc) {
+    if (pendingPeers.has(id)) {
+      pendingPeers.delete(id);
+    }
+    if (pc.connectionState != 'connected') {
+      pc.close();
+    }
+  }
   async function makeOffer() {
     const pc = new RTCPeerConnection(connectionSettings);
     const channel = pc.createDataChannel('BUNDLE', {negotiated: true, id: 0});
@@ -29,6 +39,7 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
     const description = await $description;
     const id = randomChars(20);
     pendingPeers.set(id, {pc, channel});
+    setTimeout(() => expireOffer(id, pc), OFFER_TIMEOUT);
     return {
       offer_id: id,
       offer: description,
@@ -110,6 +121,7 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
           }
         }
       });
+      setTimeout(() => expireOffer('', pc), OFFER_TIMEOUT);
       savePeer(data.peer_id, {pc, channel});
       ws.send(JSON.stringify({
         info_hash: data.info_hash,
