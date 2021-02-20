@@ -10,39 +10,28 @@ const connectionSettings = {
   iceServers: [{urls:["stun:stun.l.google.com:19302"]}],
 };
 
-const OFFER_INTERVAL = 60 * 1000;
-const OFFER_TIMEOUT = OFFER_INTERVAL + 10 * 1000;
+const minute = 60*1000;
+const offerTimeout = 10*1000;
+const offerPeriods = [4*minute, 12*minute, 36*minute, 108*minute];
+const heartbeatPeriod = 1*minute;
+const peerCount = 5;
 
 function Discovery(url, feed, onPeer, onPeerDisconnect) {
-  const ws = new WebSocket(url);
+  let discoverySocket = makeSocket();
   const myPeerId = randomPeerId();
+  const requestHeader = { action: 'announce', info_hash: feed, peer_id: myPeerId };
+  const heartbeatRequest = JSON.stringify({ ...requestHeader, numwant: 0, offers: [] });
   const pendingPeers = new Map();
   const peers = new Map();
+  let lastOfferTime = Date.now();
+  let offerCounter = 0;
+
   function expireOffer(id, pc) {
     if (pendingPeers.has(id)) {
       pendingPeers.delete(id);
     }
     if (pc.connectionState != 'connected') {
       pc.close();
-    }
-  }
-  async function makeOffer() {
-    const pc = new RTCPeerConnection(connectionSettings);
-    const channel = pc.createDataChannel('BUNDLE', {negotiated: true, id: 0});
-    const $description = new Promise(function(resolve, reject) {
-      pc.onicecandidate = e => {
-        if (e.candidate == null) {
-          resolve(pc.localDescription);
-        }
-      }
-    });
-    await pc.setLocalDescription(await pc.createOffer());
-    const id = randomChars(20);
-    pendingPeers.set(id, {pc, channel});
-    setTimeout(() => expireOffer(id, pc), OFFER_TIMEOUT);
-    return {
-      offer_id: id,
-      offer: await $description,
     }
   }
   function savePeer(peerId, peer) {
@@ -57,68 +46,94 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
     }
     function maybeRemove() {
       if ((peer.pc.connectionState != 'connected' ||  peer.channel.readyState != 'open') && peers.has(peerId)) {
-        peers.delete(peerId);
         console.log('removed a peer:', peerId);
+        peers.delete(peerId);
         onPeerDisconnect(peer);
+        offerCounter = 0;
       }
     }
     peer.id = peerId;
     peer.channel.onopen = maybeSave;
     maybeSave();
   }
-  async function sendOffers() {
-    const offerCount = 1;
-    const request = {
-      info_hash: feed,
-      peer_id: myPeerId,
-      numwant: offerCount,
-      uploaded: 0,
-      downloaded: 0,
-      left: null,
-      action: 'announce',
-      offers: await Promise.all(new Array(offerCount).fill(0).map(makeOffer)),
-    };
-    ws.send(JSON.stringify(request));
+  function getLocalDescription(pc) {
+    return new Promise(function(resolve, reject) {
+      pc.onicecandidate = e => {
+        if (e.candidate == null) {
+          resolve(pc.localDescription);
+        }
+      }
+    });
   }
-  ws.onopen = function() {
-    sendOffers();
-    setInterval(sendOffers, OFFER_INTERVAL);
-  };
-  ws.onmessage = async e => {
-    const data = JSON.parse(e.data);
-    if (peers.has(data.peer_id)) {
-      return;
-    }
-    if (data.answer) {
-      const peer = mapRemove(pendingPeers, data.offer_id);
-      await peer.pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-      savePeer(data.peer_id, peer);
-    } else if (data.offer) {
+  async function sendOffer() {
+    const numwant = Math.max(0, peerCount - peers.size);
+    const offers = await Promise.all(new Array(numwant).fill(0).map(async x => {
       const pc = new RTCPeerConnection(connectionSettings);
       const channel = pc.createDataChannel('BUNDLE', {negotiated: true, id: 0});
-      await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      const $description = new Promise(function(resolve, reject) {
-        pc.onicecandidate = e => {
-          if (e.candidate == null) {
-            resolve(pc.localDescription);
-          }
-        }
-      });
-      setTimeout(() => expireOffer('', pc), OFFER_TIMEOUT);
-      savePeer(data.peer_id, {pc, channel});
-      const description = await $description;
-      ws.send(JSON.stringify({
-        info_hash: data.info_hash,
-        offer_id: data.offer_id,
-        peer_id: myPeerId,
-        to_peer_id: data.peer_id,
-        action: 'announce',
-        answer: description,
-      }));
+      await pc.setLocalDescription(await pc.createOffer());
+      const offer = await getLocalDescription(pc);
+      const id = randomChars(20);
+      pendingPeers.set(id, {pc, channel});
+      setTimeout(() => expireOffer(id, pc), offerTimeout);
+      return { offer_id: id, offer };
+    }));
+    discoverySocket.send(JSON.stringify({ ...requestHeader, numwant, offers }));
+  }
+  async function acceptOffer(data) {
+    const pc = new RTCPeerConnection(connectionSettings);
+    const channel = pc.createDataChannel('BUNDLE', {negotiated: true, id: 0});
+    await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+    await pc.setLocalDescription(await pc.createAnswer());
+    const answer = await getLocalDescription(pc);
+    savePeer(data.peer_id, {pc, channel});
+    setTimeout(() => expireOffer('', pc), offerTimeout);
+    discoverySocket.send(JSON.stringify({
+      ...requestHeader,
+      offer_id: data.offer_id,
+      to_peer_id: data.peer_id,
+      answer,
+    }));
+  }
+  async function acceptAnswer(data) {
+    const peer = mapRemove(pendingPeers, data.offer_id);
+    await peer.pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+    savePeer(data.peer_id, peer);
+  }
+  function makeSocket() {
+    console.log('makeSocket');
+    const socket = new WebSocket(url);
+    socket.onopen = heartbeat;
+    socket.onmessage = e => {
+      const data = JSON.parse(e.data);
+      if (peers.has(data.peer_id)) {
+        console.log('skipping peer', data.peer_id);
+        return;
+      } else if (data.offer) {
+        acceptOffer(data);
+      } else if (data.answer) {
+        acceptAnswer(data);
+      }
+    };
+    return socket;
+  }
+  function heartbeat() {
+    const connected = discoverySocket.readyState == 1 /* OPEN */;
+    if (connected) {
+      const shouldOffer = (
+        Date.now() > lastOfferTime + offerPeriods[Math.min(offerPeriods.length - 1, offerCounter)] &&
+        peers.size < peerCount);
+      if (shouldOffer) {
+        lastOfferTime = Date.now();
+        offerCounter++;
+        sendOffer();
+      } else {
+        discoverySocket.send(heartbeatRequest);
+      }
+    } else {
+      discoverySocket = makeSocket();
     }
-  };
+  }
+  setInterval(heartbeat, heartbeatPeriod);
 }
 
 export {Discovery};
