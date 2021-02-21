@@ -6,7 +6,7 @@ import {base64Decode, base64Encode, randomChars, randomId} from './util.js';
 
 const State = {
   empty: Symbol('empty'),
-  ready: Symbol('ready'),
+  nonempty: Symbol('nonempty'),
 };
 
 function newConnectionString(settings) {
@@ -96,7 +96,7 @@ async function Database(name, connection, settings={}) {
   }
 
   function state() {
-    return changes.changeList.length > 0 ? State.ready : State.empty;
+    return changes.changeList.length > 0 ? State.nonempty : State.empty;
   }
 
   return {table: name => Table(name), state, peerCount: share.peerCount };
