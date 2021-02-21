@@ -1,7 +1,5 @@
 import {randomChars, mapRemove} from './util.js';
 
-// TODO: expire pendingStubs and almost connected
-
 function randomPeerId() {
   return '-OH0001-' + randomChars(12);
 }
@@ -23,6 +21,7 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
   const heartbeatRequest = JSON.stringify({ ...requestHeader, numwant: 0, offers: [] });
   const pendingPeers = new Map();
   const peers = new Map();
+  let totalPeerCount = 0;
   let lastOfferTime = Date.now();
   let offerCounter = 0;
 
@@ -100,11 +99,13 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
     savePeer(data.peer_id, peer);
   }
   function makeSocket() {
-    console.log('makeSocket');
     const socket = new WebSocket(url);
     socket.onopen = heartbeat;
     socket.onmessage = e => {
       const data = JSON.parse(e.data);
+      if (Number.isInteger(data.incomplete)) {
+        totalPeerCount = data.incomplete - 1;
+      }
       if (peers.has(data.peer_id)) {
         console.log('skipping peer', data.peer_id);
         return;
@@ -134,6 +135,7 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
     }
   }
   setInterval(heartbeat, heartbeatPeriod);
+  return { peerCount: () => ({ total: totalPeerCount, connected: peers.size }) };
 }
 
 export {Discovery};

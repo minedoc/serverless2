@@ -9,11 +9,6 @@ const State = {
   ready: Symbol('ready'),
 };
 
-const Connectivity = {
-  online: Symbol('online'),
-  offline: Symbol('offline'),
-};
-
 function newConnectionString(settings) {
   return (
     randomChars(20) +  // feed
@@ -103,11 +98,8 @@ async function Database(name, connection, settings={}) {
   function state() {
     return changes.changeList.length > 0 ? State.ready : State.empty;
   }
-  function connectivity() {
-    return share.peerCount() > 0 ? Connectivity.online : Connectivity.offline;
-  }
 
-  return {table: name => Table(name), state, connectivity};
+  return {table: name => Table(name), state, peerCount: share.peerCount };
 }
 
-export {Database, State, Connectivity, newConnectionString};
+export {Database, State, newConnectionString};

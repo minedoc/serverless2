@@ -5,7 +5,7 @@ async function init() {
   setInterval(() => {
     document.getElementById('out').innerText = (
       'foo = ' + JSON.stringify(Array.from(db.table('foo'))) + '\n' +
-      'connectivity = ' + db.connectivity().toString() + '\n' +
+      'peerCount = ' + JSON.stringify(db.peerCount()) + '\n' +
       'state = ' + db.state().toString() + '\n'
     );
   }, 1000);

@@ -84,7 +84,7 @@ async function Share(changes, tracker, feed, readKey, onChange, onConflict) {
       });
     }
   }, 1*1000);
-  return {saveLocalChange, peerCount: () => stubs.size}
+  return {saveLocalChange, peerCount: discovery.peerCount}
 }
 
 export {Share};
