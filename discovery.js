@@ -10,7 +10,7 @@ const connectionSettings = {
 
 const minute = 60*1000;
 const offerTimeout = 10*1000;
-const offerPeriods = [4*minute, 12*minute, 36*minute, 108*minute];
+const offerPeriods = [0, 4*minute, 12*minute, 36*minute, 108*minute];
 const heartbeatPeriod = 1*minute;
 const peerCount = 5;
 
