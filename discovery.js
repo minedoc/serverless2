@@ -134,8 +134,9 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
       discoverySocket = makeSocket();
     }
   }
+  document.addEventListener('visibilitychange', heartbeat);
   setInterval(heartbeat, heartbeatPeriod);
-  return { peerCount: () => ({ total: totalPeerCount, connected: peers.size }) };
+  return { peerCount: () => ({ total: Math.max(totalPeerCount, peers.size), connected: peers.size }) };
 }
 
 export {Discovery};
