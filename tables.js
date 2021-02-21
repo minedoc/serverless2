@@ -1,19 +1,13 @@
-import {clockLessThan, checkSimpleValue, freeze} from './util.js';
+import {clockLessThan, checkSimpleValue, freeze, DefaultMap} from './util.js';
 
 function Tables(idb, frozen, validate) {
-  const tables = new Map();
-  const clocks = new Map();
+  const tables = new DefaultMap(x => new Map());
+  const clocks = new DefaultMap(x => new Map());
   let writes = [];
 
   const readOnly = frozen ? freeze : x => x;
   const validator = validate ? checkSimpleValue : x => x;
 
-  function getTable(table) {
-    if (!tables.has(table)) {
-      tables.set(table, new Map());
-    }
-    return tables.get(table);
-  }
   function persist() {
     const store = idb.transaction('tables', 'readwrite').objectStore('tables');
     writes.map(write => {
@@ -25,17 +19,21 @@ function Tables(idb, frozen, validate) {
     });
     writes = [];
   }
+  function newerEdit(table, rowId, clock) {
+    const c = clocks.get(table);
+    return !c.has(rowId) || clockLessThan(c.get(rowId), clock);
+  }
   function setValue(table, rowId, clock, value) {
-    if (!clocks.has(rowId) || clockLessThan(clocks.get(rowId), clock)) {
-      getTable(table).set(rowId, validator(readOnly(value)));
-      clocks.set(rowId, clock);
+    if (validator(value) && newerEdit(table, rowId, clock)) {
+      tables.get(table).set(rowId, readOnly(value));
+      clocks.get(table).set(rowId, clock);
       writes.push({id: [table, rowId], clock, value});
     }
   }
   function removeRow(table, rowId, clock) {
-    if (!clocks.has(rowId) || clockLessThan(clocks.get(rowId), clock)) {
-      getTable(table).delete(rowId, clock);
-      clocks.set(rowId, clock);
+    if (newerEdit(table, rowId, clock)) {
+      tables.get(table).delete(rowId, clock);
+      clocks.get(table).set(rowId, clock);
       writes.push({id: [table, rowId], clock, removed: true});
     }
   }
@@ -51,15 +49,15 @@ function Tables(idb, frozen, validate) {
       for(const row of req.result) {
         const [table, rowId] = row.id;
         if (!row.removed) {
-          getTable(table).set(rowId, readOnly(row.value));
+          tables.get(table).set(rowId, readOnly(row.value));
         }
-        clocks.set(rowId, row.clock);
+        clocks.get(table).set(rowId, row.clock);
         if (maxClock.global <= row.clock.global) {
           maxClock.global = row.clock.global + 1;
         }
       }
       setInterval(persist, 500);
-      resolve([{getTable, setValue, removeRow}, maxClock]);
+      resolve([{getTable: x => tables.get(x), setValue, removeRow}, maxClock]);
     }
   });
 }

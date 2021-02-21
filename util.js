@@ -95,10 +95,10 @@ function checkSimpleValue(x) {
         checkSimpleValue(value);
       }
     } else {
-      throw {error: 'can only store ssmple values', value: x};
+      throw {error: 'can only store simple values', value: x};
     }
   }
-  return x;
+  return true;
 }
 
 function freezeProxy(x) {
@@ -120,4 +120,20 @@ function freeze(x) {
   return x;
 }
 
-export {randomChars, mapRemove, base64Encode, base64Decode, randomId, promiseFn, join, clockLessThan, checkSimpleValue, freeze};
+class DefaultMap extends Map {
+  constructor(def) {
+    super()
+    this._default = def;
+  }
+  get(key) {
+    if (this.has(key)) {
+      return super.get(key);
+    } else {
+      const value = this._default();
+      this.set(key, value);
+      return value;
+    }
+  }
+}
+
+export {randomChars, mapRemove, base64Encode, base64Decode, randomId, promiseFn, join, clockLessThan, checkSimpleValue, freeze, DefaultMap};
