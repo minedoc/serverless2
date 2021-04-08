@@ -1,5 +1,5 @@
 import {MessagePiece, Rpc} from './types.js';
-import {base64Decode, mapRemove} from './util.js';
+import {mapRemove} from './util.js';
 
 const MAX_32 = 2**32 - 1;
 
