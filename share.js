@@ -5,14 +5,17 @@ import {base64Encode, promiseFn, join, clockLessThan} from './util.js';
 
 async function Share(changes, tracker, feed, readKey, onChange, onConflict) {
   const stubs = new Map();
+  // difference between local and remote change is that local change is
+  // guaranteed to apply
   async function saveLocalChange(change) {
+    onChange(Change.read(change), false);
     const hash = base64Encode(await crypto.subtle.digest('SHA-256', change));
     changes.saveChange({hash, change, local: true});
   }
   async function applyRemoteChange(change) {
     const hash = base64Encode(await crypto.subtle.digest('SHA-256', change));
     if (changes.saveChange({hash, change, local: false})) {
-      onChange(hash, Change.read(change));
+      onChange(Change.read(change), true);
     }
   }
   function byRowId(changes) {
@@ -30,13 +33,11 @@ async function Share(changes, tracker, feed, readKey, onChange, onConflict) {
     (async function() {
       const locals = (await $local).map(blob => Change.read(blob.change));
       const remotes = (await $remote).map(change => Change.read(change));
-      const conflicts = [];
       join(byRowId(locals), byRowId(remotes), (local, remote) => {
         if (clockLessThan(local.clock, remote.clock)) {
-          conflicts.push(local);
+          onConflict({local, remote});
         }
       });
-      conflicts.map(conflict => onConflict(conflict));
     } ());
     return {fromLocal, fromRemote};
   }
@@ -65,13 +66,12 @@ async function Share(changes, tracker, feed, readKey, onChange, onConflict) {
         };
       }],
     });
-    withStubLocked(stub, async () => {
-      stubs.set(peer.id, stub);
-      const resp = await stub.getUnseenChanges({bloomFilter: changes.getBloomFilter()});
-      changeConflict.fromRemote(resp.changes);
-      stub.cursor = resp.cursor;
-      resp.changes.map(change => applyRemoteChange(change));
-    });
+    const resp = await stub.getUnseenChanges({bloomFilter: changes.getBloomFilter()});
+    stub.cursor = resp.cursor;
+    resp.changes.map(change => applyRemoteChange(change));
+    changeConflict.fromRemote(resp.changes);
+
+    stubs.set(peer.id, stub);
   }, peer => {
     stubs.delete(peer.id);
   });

@@ -1,13 +1,7 @@
 import {Changes} from './changes.js';
 import {Share} from './share.js';
-import {Tables} from './tables.js';
 import {Update, Delete, Change} from './types.js';
-import {base64Decode, base64Encode, randomChars, randomId} from './util.js';
-
-const State = {
-  empty: Symbol('empty'),
-  nonempty: Symbol('nonempty'),
-};
+import {base64Decode, base64Encode, checkSimpleValue, clockLessThan, DefaultMap, freeze, randomChars, randomId} from './util.js';
 
 function newConnectionString(settings) {
   return (
@@ -21,8 +15,6 @@ async function Database(name, connection, settings={}) {
   const readKey = await window.crypto.subtle.importKey('raw', base64Decode(connection.substr(20)), {name: 'AES-GCM'}, false, ['encrypt', 'decrypt']);
   const {
     tracker = 'wss://tracker.openwebtorrent.com',
-    frozen = true,
-    validate = true,
     onConflict = x => console.log('conflict found', x),
   } = settings;
   const idb = await new Promise((resolve, reject) => {
@@ -38,33 +30,82 @@ async function Database(name, connection, settings={}) {
     req.onerror = () => reject(req.error);
     req.onsuccess = () => resolve(req.result);
   });
-  const [tables, clock] = await Tables(idb, frozen, validate);
+  const writes = [];
+  const maxClock = {
+    global: 0,
+    site: Math.floor(Math.random() * 999999),
+    local: 0,
+  };
+  const tables = new DefaultMap(x => new Map());
+  const clocks = new DefaultMap(x => new Map());
+  const forward = new DefaultMap(x => new Set());
+  await new Promise((resolve, reject) => {
+    const req = idb.transaction('tables', 'readonly').objectStore('tables').getAll();
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      for(const row of req.result) {
+        const [table, rowId] = row.id;
+        if (!row.removed) {
+          tables.get(table).set(rowId, freeze(row.value));
+        }
+        clocks.get(table).set(rowId, row.clock);
+        bumpMaxClock(row);
+      }
+      resolve();
+    }
+  });
+  setInterval(() => {
+    const store = idb.transaction('tables', 'readwrite').objectStore('tables');
+    for (const write of writes.splice(0)) {
+      store.get(write.id).onsuccess = fetch => {
+        if (fetch.result == undefined || clockLessThan(fetch.result.clock, write.clock)) {
+          store.put(write);
+        }
+      };
+    }
+  }, 500);
   const changes = await Changes(idb);
-  const share = await Share(changes, tracker, feed, readKey, onRemoteChange, onConflict);
+  const share = await Share(changes, tracker, feed, readKey, onChange, onConflict);
 
-  function onRemoteChange(hash, change) {
-    if (clock.global <= change.clock.global) {
-      clock.global = change.clock.global + 1;
-      clock.local = 0;
-    }
-    if (change.$type == Update) {
-      tables.setValue(change.table, change.rowId, change.clock, change.value);
-    } else if (change.$type == Delete) {
-      tables.removeRow(change.table, change.rowId, change.clock);
+  function bumpMaxClock(change) {
+    if (maxClock.global <= change.clock.global) {
+      maxClock.global = change.clock.global + 1;
+      maxClock.local = 0;
     }
   }
 
-  function getNextClock() {
-    clock.local++;
-    return {...clock};
+  function onChange(change, remote) {
+    if (remote) { bumpMaxClock(change); }
+    if (clockLessThan(clocks.get(table).get(rowId), clock)) {
+      const {table, rowId, clock} = change;
+      clocks.get(table).set(rowId, clock);
+      if (change.$type == Update) {
+        const value = freeze(change.value);
+        tables.get(table).set(rowId, value);
+        for (const map of forward.get(table)) {
+          map.set(rowId, value);
+        }
+        writes.push({id: [table, rowId], clock, value});
+      } else if (change.$type == Delete) {
+        tables.get(table).delete(rowId);
+        for (const map of forward.get(table)) {
+          map.delete(rowId, value);
+        }
+        writes.push({id: [table, rowId], clock, removed: true});
+      }
+    }
   }
 
-  function Table(table) {
-    const data = tables.getTable(table);
-    function Table(table) {
+  function makeEdit(editType, edit) {
+    maxClock.local++;
+    return Change.write(editType.wrap({clock: {...maxClock}, ...edit}));
+  }
+
+  const tableCache = new DefaultMap(table => {
+    const data = tables.get(table);
+    function Table() {
       this.table = table;
     }
-    // missing methods: set, clear
     Table.prototype.get = key => data.get(key);
     Table.prototype.has = key => data.has(key);
     Table.prototype.keys = x => data.keys();
@@ -73,33 +114,40 @@ async function Database(name, connection, settings={}) {
     Table.prototype.entries = Table.prototype[Symbol.iterator] = x => data.entries();
     Table.prototype.forEach = (callback, thisArg) => data.forEach(callback, thisArg);
     Table.prototype.insert = value => {
-      const clock = getNextClock();
+      checkSimpleValue(value);
       const rowId = randomId();
-      tables.setValue(table, rowId, clock, value);
-      share.saveLocalChange(Change.write(Update.wrap({clock, table, rowId, value})));
-      return rowId;
+      share.saveLocalChange(makeEdit(Update, {table, rowId, value}));
+      return {rowId, value};
     };
     Table.prototype.update = (rowId, value) => {
-      const clock = getNextClock();
-      tables.setValue(table, rowId, clock, value);
-      share.saveLocalChange(Change.write(Update.wrap({clock, table, rowId, value})));
-      return value;
+      checkSimpleValue(value);
+      share.saveLocalChange(makeEdit(Update, {table, rowId, value}));
+      return {rowId, value};
     };
     Table.prototype.delete = rowId => {
       const value = data.get(rowId);
-      const clock = getNextClock();
-      tables.removeRow(table, rowId, clock);
-      share.saveLocalChange(Change.write(Delete.wrap({clock, table, rowId})));
-      return value;
+      share.saveLocalChange(makeEdit(Delete, {table, rowId}));
+      return {rowId, value};
     };
-    return new Table(table);
-  }
+    Table.prototype.forwardUpdatesTo = map => {
+      forward.get(table).add(map);
+      map.clear();
+      for (const [key, value] of data) {
+        map.set(key, value);
+      }
+      return () => {
+        map.clear();
+        forward.get(table).delete(map);
+      };
+    };
+    return new Table();
+  });
 
   function state() {
-    return changes.changeList.length > 0 ? State.nonempty : State.empty;
+    return changes.changeList.length > 0 ? 'nonempty' : 'empty';
   }
 
-  return {table: name => Table(name), state, peerCount: share.peerCount };
+  return {table: name => tableCache.get(name), state, peerCount: share.peerCount };
 }
 
-export {Database, State, newConnectionString};
+export {Database, newConnectionString};

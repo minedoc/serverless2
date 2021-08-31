@@ -58,7 +58,7 @@ function randomId() {
     now = (now - remainder) / base
   }
   out.reverse();
-  return out.join('') + randomChars(6);
+  return out.join('') + randomChars(6);  // good for 1000 writes per second
 }
 
 function promiseFn() {
@@ -129,7 +129,7 @@ class DefaultMap extends Map {
     if (this.has(key)) {
       return super.get(key);
     } else {
-      const value = this._default();
+      const value = this._default(key);
       this.set(key, value);
       return value;
     }
