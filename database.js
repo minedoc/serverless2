@@ -76,8 +76,8 @@ async function Database(name, connection, settings={}) {
 
   function onChange(change, remote) {
     if (remote) { bumpMaxClock(change); }
+    const {table, rowId, clock} = change;
     if (clockLessThan(clocks.get(table).get(rowId), clock)) {
-      const {table, rowId, clock} = change;
       clocks.get(table).set(rowId, clock);
       if (change.$type == Update) {
         const value = freeze(change.value);
@@ -89,7 +89,7 @@ async function Database(name, connection, settings={}) {
       } else if (change.$type == Delete) {
         tables.get(table).delete(rowId);
         for (const map of forward.get(table)) {
-          map.delete(rowId, value);
+          map.delete(rowId);
         }
         writes.push({id: [table, rowId], clock, removed: true});
       }
@@ -129,16 +129,14 @@ async function Database(name, connection, settings={}) {
       share.saveLocalChange(makeEdit(Delete, {table, rowId}));
       return {rowId, value};
     };
-    Table.prototype.forwardUpdatesTo = map => {
+    Table.prototype.forward = map => {
       forward.get(table).add(map);
-      map.clear();
       for (const [key, value] of data) {
         map.set(key, value);
       }
-      return () => {
-        map.clear();
-        forward.get(table).delete(map);
-      };
+    };
+    Table.prototype.unforward = map => {
+      forward.get(table).delete(map);
     };
     return new Table();
   });
