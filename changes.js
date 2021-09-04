@@ -7,6 +7,7 @@ function Changes(idb) {
   const changeList = [];
   let writeCursor = 0;
   let bloomFilter;
+  let flushInterval;
   function saveChange(blob) {
     if (!changeMap.has(blob.hash)) {
       changeMap.set(blob.hash, blob);
@@ -17,7 +18,7 @@ function Changes(idb) {
       return false;
     }
   }
-  function writeToDisk() {
+  function flush() {
     const store = idb.transaction('changes', 'readwrite').objectStore('changes');
     for (; writeCursor<changeList.length; writeCursor++) {
       store.put(changeList[writeCursor]);
@@ -33,6 +34,9 @@ function Changes(idb) {
     }
     return missing;
   }
+  function close() {
+    clearInterval(flushInterval);
+  }
   return new Promise((resolve, reject) => {
     const req = idb.transaction('changes', 'readonly').objectStore('changes').getAll();
     req.onerror = () => reject(req.error);
@@ -42,8 +46,8 @@ function Changes(idb) {
         saveChange({hash: row.hash, change: row.change, local: row.local});
       }
       writeCursor = changeList.length;
-      setInterval(writeToDisk, 500);
-      resolve({getBloomFilter: () => bloomFilter.binary, getMissingChanges, saveChange, changeList});
+      flushInterval = setInterval(flush, 500);
+      resolve({getBloomFilter: () => bloomFilter.binary, getMissingChanges, saveChange, changeList, close});
     }
   });
 }

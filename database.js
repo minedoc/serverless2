@@ -54,7 +54,11 @@ async function Database(name, connection, settings={}) {
       resolve();
     }
   });
-  setInterval(() => {
+  const flushInterval = setInterval(flush, 500);
+  const changes = await Changes(idb);
+  const share = await Share(changes, tracker, feed, readKey, onChange, onConflict);
+
+  function flush(callback=()=>0) {
     const store = idb.transaction('tables', 'readwrite').objectStore('tables');
     for (const write of writes.splice(0)) {
       store.get(write.id).onsuccess = fetch => {
@@ -63,9 +67,8 @@ async function Database(name, connection, settings={}) {
         }
       };
     }
-  }, 500);
-  const changes = await Changes(idb);
-  const share = await Share(changes, tracker, feed, readKey, onChange, onConflict);
+    callback();
+  }
 
   function bumpMaxClock(change) {
     if (maxClock.global <= change.clock.global) {
@@ -145,7 +148,21 @@ async function Database(name, connection, settings={}) {
     return changes.changeList.length > 0 ? 'nonempty' : 'empty';
   }
 
-  return {table: name => tableCache.get(name), state, peerCount: share.peerCount };
+  function close() {
+    for (const [key, val] of tableCache) {
+      for (const method of ['get', 'has', 'keys', 'size', 'values', 'entries', 'forEach', 'insert', 'update', 'delete', 'forward', 'unforward']) {
+        val[method] = () => { throw 'database has been closed' };
+      }
+    }
+    share.close();
+    changes.close();
+    clearInterval(flushInterval);
+    flush(() => {
+      idb.close();
+    });
+  }
+
+  return {table: name => tableCache.get(name), state, close, peerCount: share.peerCount};
 }
 
 export {Database, newConnectionString};

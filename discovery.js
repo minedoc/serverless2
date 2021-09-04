@@ -99,7 +99,6 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
     savePeer(data.peer_id, peer);
   }
   function makeSocket() {
-    console.log('makeSocket');
     const socket = new WebSocket(url);
     socket.onopen = heartbeat;
     socket.onmessage = e => {
@@ -135,13 +134,25 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
       discoverySocket = makeSocket();
     }
   }
-  document.addEventListener('visibilitychange', () => {
+  function visibilityChange() {
     if (!document.hidden) {
       heartbeat()
     }
-  });
-  setInterval(heartbeat, heartbeatPeriod);
-  return { peerCount: () => ({ total: Math.max(totalPeerCount, peers.size), connected: peers.size }) };
+  }
+  document.addEventListener('visibilitychange', visibilityChange);
+  const heartbeatInterval = setInterval(heartbeat, heartbeatPeriod);
+  function close() {
+    clearInterval(heartbeatInterval);
+    document.removeEventListener('visibilitychange', visibilityChange);
+    discoverySocket.close();
+    totalPeerCount = 0;
+    for (const [peerId, peer] of peers) {
+      onPeerDisconnect(peer);
+      peer.pc.close();
+    }
+    peers.clear();
+  }
+  return { peerCount: () => ({ total: Math.max(totalPeerCount, peers.size), connected: peers.size }), close };
 }
 
 export {Discovery};
