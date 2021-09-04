@@ -154,6 +154,9 @@ async function Database(name, connection, settings={}) {
         val[method] = () => { throw 'database has been closed' };
       }
     }
+    for (const [tableName, table] of tables) {
+      table.clear();
+    }
     share.close();
     changes.close();
     clearInterval(flushInterval);
