@@ -1,6 +1,6 @@
 import {Changes} from './changes.js';
 import {Share} from './share.js';
-import {Update, Delete, Change} from './types.js';
+import {Update, Delete, Change, Backup} from './types.js';
 import {base64Decode, base64Encode, checkSimpleValue, clockLessThan, DefaultMap, freeze, randomChars, randomId} from './util.js';
 
 function newConnectionString(settings) {
@@ -165,7 +165,11 @@ async function Database(name, connection, settings={}) {
     });
   }
 
-  return {table: name => tableCache.get(name), state, close, peerCount: share.peerCount};
+  function getBackup() {
+    return Backup.write({connection, changes: changes.changeList.map(x => x.change)});
+  }
+
+  return {table: name => tableCache.get(name), state, close, getBackup, peerCount: share.peerCount};
 }
 
 export {Database, newConnectionString};

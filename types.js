@@ -55,4 +55,9 @@ const GetRecentChangesResp = message('GetRecentChangesResp', {
   cursor: uint32(2),
 });
 
-export {MessagePiece, Rpc, Update, Delete, Change, GetUnseenChangesReq, GetUnseenChangesResp, GetRecentChangesReq, GetRecentChangesResp};
+const Backup = message('Backup', {
+  connection: string(1),
+  changes: repeated(binary, 2),
+});
+
+export {MessagePiece, Rpc, Update, Delete, Change, GetUnseenChangesReq, GetUnseenChangesResp, GetRecentChangesReq, GetRecentChangesResp, Backup};
