@@ -15,7 +15,8 @@ const heartbeatPeriod = 1*minute;
 const peerCount = 5;
 
 function Discovery(url, feed, onPeer, onPeerDisconnect) {
-  let discoverySocket = makeSocket();
+  let discoverySocket;
+  makeSocket();
   const myPeerId = randomPeerId();
   const requestHeader = { action: 'announce', info_hash: feed, peer_id: myPeerId };
   const heartbeatRequest = JSON.stringify({ ...requestHeader, numwant: 0, offers: [] });
@@ -99,9 +100,9 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
     savePeer(data.peer_id, peer);
   }
   function makeSocket() {
-    const socket = new WebSocket(url);
-    socket.onopen = heartbeat;
-    socket.onmessage = e => {
+    discoverySocket = new WebSocket(url);
+    discoverySocket.onopen = heartbeat;
+    discoverySocket.onmessage = e => {
       const data = JSON.parse(e.data);
       if (Number.isInteger(data.incomplete)) {
         totalPeerCount = data.incomplete - 1;
@@ -115,11 +116,9 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
         acceptAnswer(data);
       }
     };
-    return socket;
   }
   function heartbeat() {
-    const connected = discoverySocket.readyState == 1 /* OPEN */;
-    if (connected) {
+    if (discoverySocket.readyState == 1 /* OPEN */) {
       const shouldOffer = (
         Date.now() > lastOfferTime + offerPeriods[Math.min(offerPeriods.length - 1, offerCounter)] &&
         peers.size < peerCount);
@@ -131,7 +130,7 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
         discoverySocket.send(heartbeatRequest);
       }
     } else {
-      discoverySocket = makeSocket();
+      makeSocket();
     }
   }
   function visibilityChange() {
