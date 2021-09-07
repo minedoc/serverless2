@@ -10,9 +10,13 @@ function newConnectionString(settings) {
   );
 }
 
+function connectionId(connection) {
+  return connection.substring(0, 20);
+}
+
 async function Database(name, connection, settings={}) {
-  const feed = connection.substr(0, 20);
-  const readKey = await window.crypto.subtle.importKey('raw', base64Decode(connection.substr(20)), {name: 'AES-GCM'}, false, ['encrypt', 'decrypt']);
+  const feed = connection.substring(0, 20);
+  const readKey = await window.crypto.subtle.importKey('raw', base64Decode(connection.substring(20)), {name: 'AES-GCM'}, false, ['encrypt', 'decrypt']);
   const {
     tracker = 'wss://tracker.openwebtorrent.com',
     onConflict = x => console.log('conflict found', x),
@@ -172,4 +176,4 @@ async function Database(name, connection, settings={}) {
   return {table: name => tableCache.get(name), state, close, getBackup, peerCount: share.peerCount};
 }
 
-export {Database, newConnectionString};
+export {Database, newConnectionString, connectionId};
