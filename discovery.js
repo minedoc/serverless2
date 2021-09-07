@@ -12,11 +12,12 @@ const minute = 60*1000;
 const offerTimeout = 10*1000;
 const offerPeriods = [0, 4*minute, 12*minute, 36*minute, 108*minute];
 const heartbeatPeriod = 1*minute;
+const socketCreationTimeout = 1*minute;
 const peerCount = 5;
+const SOCKET_OPEN = 1;
 
 function Discovery(url, feed, onPeer, onPeerDisconnect) {
   let discoverySocket;
-  makeSocket();
   const myPeerId = randomPeerId();
   const requestHeader = { action: 'announce', info_hash: feed, peer_id: myPeerId };
   const heartbeatRequest = JSON.stringify({ ...requestHeader, numwant: 0, offers: [] });
@@ -25,6 +26,7 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
   let totalPeerCount = 0;
   let lastOfferTime = Date.now();
   let offerCounter = 0;
+  let socketCreationTime = 0;
 
   function expireOffer(id, pc) {
     if (pendingPeers.has(id)) {
@@ -100,9 +102,12 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
     savePeer(data.peer_id, peer);
   }
   function makeSocket() {
-    discoverySocket = new WebSocket(url);
-    discoverySocket.onopen = heartbeat;
-    discoverySocket.onmessage = e => {
+    const socket = new WebSocket(url);
+    socket.onopen = () => {
+      discoverySocket = socket;
+      heartbeat();
+    };
+    socket.onmessage = e => {
       const data = JSON.parse(e.data);
       if (Number.isInteger(data.incomplete)) {
         totalPeerCount = data.incomplete - 1;
@@ -116,9 +121,10 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
         acceptAnswer(data);
       }
     };
+    socketCreationTime = Date.now();
   }
   function heartbeat() {
-    if (discoverySocket.readyState == 1 /* OPEN */) {
+    if (discoverySocket.readyState == SOCKET_OPEN) {
       const shouldOffer = (
         Date.now() > lastOfferTime + offerPeriods[Math.min(offerPeriods.length - 1, offerCounter)] &&
         peers.size < peerCount);
@@ -129,17 +135,15 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
       } else {
         discoverySocket.send(heartbeatRequest);
       }
-    } else {
+    } else if (socketCreationTime + socketCreationTimeout < Date.now()) {
       makeSocket();
     }
   }
   function visibilityChange() {
     if (!document.hidden) {
-      heartbeat()
+      heartbeat();
     }
   }
-  document.addEventListener('visibilitychange', visibilityChange);
-  const heartbeatInterval = setInterval(heartbeat, heartbeatPeriod);
   function close() {
     clearInterval(heartbeatInterval);
     document.removeEventListener('visibilitychange', visibilityChange);
@@ -151,6 +155,10 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
     }
     peers.clear();
   }
+
+  makeSocket();
+  document.addEventListener('visibilitychange', visibilityChange);
+  const heartbeatInterval = setInterval(heartbeat, heartbeatPeriod);
   return { peerCount: () => ({ total: Math.max(totalPeerCount, peers.size), connected: peers.size }), close };
 }
 
