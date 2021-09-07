@@ -48,11 +48,11 @@ async function Stub({pc, channel}, key, methods) {
 
   function concatArrays(arrays) {
     let len = 0;
-    for (let i=0; i<arrays.length; len += arrays[i].length, i++) {
+    for (let i=0; i<arrays.length; len += arrays[i].byteLength, i++) {
     }
     const out = new Uint8Array(len);
-    for (let i=0, offset=0; i<arrays.length; offset += arrays[i].length, i++) {
-      out.set(arrays[i], offset);
+    for (let i=0, offset=0; i<arrays.length; offset += arrays[i].byteLength, i++) {
+      out.set(new Uint8Array(arrays[i]), offset);
     }
     return out;
   }
