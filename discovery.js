@@ -144,9 +144,15 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
       heartbeat();
     }
   }
+  function networkChange() {
+    if (navigator.onLine) {
+      heartbeat();
+    }
+  }
   function close() {
     clearInterval(heartbeatInterval);
     document.removeEventListener('visibilitychange', visibilityChange);
+    navigator.connection.removeEventListener('change', networkChange);
     discoverySocket.close();
     totalPeerCount = 0;
     for (const [peerId, peer] of peers) {
@@ -158,6 +164,7 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
 
   makeSocket();
   document.addEventListener('visibilitychange', visibilityChange);
+  navigator.connection.addEventListener('change', networkChange);
   const heartbeatInterval = setInterval(heartbeat, heartbeatPeriod);
   return { peerCount: () => ({ total: Math.max(totalPeerCount, peers.size), connected: peers.size }), close };
 }
