@@ -105,6 +105,7 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
     const socket = new WebSocket(url);
     socket.onopen = () => {
       discoverySocket = socket;
+      offerCounter = 0;
       heartbeat();
     };
     socket.onmessage = e => {
