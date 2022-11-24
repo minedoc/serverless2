@@ -83,7 +83,7 @@ async function Share(changes, tracker, feed, readKey, onChange, onConflict) {
         resp.changes.map(change => applyRemoteChange(change));
       });
     }
-  }, 1*1000);
+  }, 2*1000);
   function close() {
     discovery.close();
   }

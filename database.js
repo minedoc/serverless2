@@ -63,6 +63,9 @@ async function Database(name, connection, settings={}) {
   const share = await Share(changes, tracker, feed, readKey, onChange, onConflict);
 
   function flush(callback=()=>0) {
+    if (writes.length == 0) {
+      return;
+    }
     const store = idb.transaction('tables', 'readwrite').objectStore('tables');
     for (const write of writes.splice(0)) {
       store.get(write.id).onsuccess = fetch => {

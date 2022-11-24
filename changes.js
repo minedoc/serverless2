@@ -19,6 +19,9 @@ function Changes(idb) {
     }
   }
   function flush() {
+    if (writeCursor == changeList.length) {
+      return;
+    }
     const store = idb.transaction('changes', 'readwrite').objectStore('changes');
     for (; writeCursor<changeList.length; writeCursor++) {
       store.put(changeList[writeCursor]);
