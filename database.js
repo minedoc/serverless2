@@ -18,7 +18,7 @@ async function Database(name, connection, settings={}) {
   const feed = connection.substring(0, 20);
   const readKey = await window.crypto.subtle.importKey('raw', base64Decode(connection.substring(20)), {name: 'AES-GCM'}, false, ['encrypt', 'decrypt']);
   const {
-    tracker = 'wss://tracker.btorrent.xyz',
+    tracker = 'wss://tracker.files.fm:7073/announce',
     onConflict = x => console.log('conflict found', x),
   } = settings;
   const idb = await new Promise((resolve, reject) => {
