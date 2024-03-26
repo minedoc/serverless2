@@ -125,7 +125,7 @@ function Discovery(url, feed, onPeer, onPeerDisconnect) {
     socketCreationTime = Date.now();
   }
   function heartbeat() {
-    if (discoverySocket.readyState == SOCKET_OPEN) {
+    if (discoverySocket?.readyState == SOCKET_OPEN) {
       const shouldOffer = (
         Date.now() > lastOfferTime + offerPeriods[Math.min(offerPeriods.length - 1, offerCounter)] &&
         peers.size < peerCount);
